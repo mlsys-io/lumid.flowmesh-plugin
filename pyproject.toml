@@ -1,6 +1,6 @@
 [project]
 name = "lumid-flowmesh-plugin"
-version = "0.1.0"
+version = "0.1.1"
 description = "FlowMesh plugin that bridges lum.id identity, Runmesh billing, and supplier attribution."
 readme = "README.md"
 requires-python = ">=3.12"

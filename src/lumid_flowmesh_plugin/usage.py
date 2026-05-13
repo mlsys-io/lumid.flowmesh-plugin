@@ -12,12 +12,17 @@ from ._cache import TTLCache
 class RunmeshUsageSink:
     """UsageSink[UsageRow] that POSTs rows to Runmesh's billing receiver.
 
-    Hydrates `userEmail` from the IdentityProvider's principal_id→email cache.
-    Rows without a cached email are emitted with `userEmail=None` and the
-    receiver must hydrate from `userSub` if needed.
+    With this plugin as the sole IdentityProvider, every authenticated
+    principal — and therefore every UsageRow that reaches us — was minted by
+    our lum.id resolve path. We forward every row.
 
-    Failures are logged and dropped; the host's `on_conflict_do_nothing`-style
-    dedup elsewhere is the safety net against duplicates.
+    `userEmail` is hydrated from the IdentityProvider's principal_id→email
+    cache; rows whose principal isn't in the cache are skipped (they predate
+    the current process or were resolved without an email claim — Runmesh
+    can't bill them without a known account).
+
+    Failures are logged and dropped; the host's deduplication elsewhere is
+    the safety net against duplicates.
     """
 
     name = "lumid_flowmesh_plugin.usage"
@@ -27,13 +32,11 @@ class RunmeshUsageSink:
         *,
         base_url: str,
         secret: str,
-        org_id: str,
         email_cache: TTLCache[str],
         timeout_sec: float = 10.0,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._secret = secret
-        self._org_id = org_id
         self._email_cache = email_cache
         self._timeout_sec = timeout_sec
 
@@ -41,25 +44,30 @@ class RunmeshUsageSink:
         if not self._base_url or not self._secret or not rows:
             return
 
-        lumid_rows = [r for r in rows if r.get("org_id") == self._org_id]
-        if not lumid_rows:
-            return
-
         async with httpx.AsyncClient(timeout=self._timeout_sec) as client:
-            for row in lumid_rows:
-                await self._post_row(client, row, logger)
+            for row in rows:
+                principal_id = row["principal_id"]
+                email = self._email_cache.get(principal_id)
+                if email is None:
+                    logger.warning(
+                        "%s: skip task %s, no cached email for principal %s",
+                        self.name,
+                        row["task_id"],
+                        principal_id,
+                    )
+                    continue
+                await self._post_row(client, row, email, logger)
 
     async def _post_row(
         self,
         client: httpx.AsyncClient,
         row: UsageRow,
+        email: str,
         logger: logging.Logger,
     ) -> None:
-        principal_id = row["principal_id"]
-        email = self._email_cache.get(principal_id)
         body = {
             "userEmail": email,
-            "userSub": principal_id,
+            "userSub": row["principal_id"],
             "taskId": row["task_id"],
             "workflowId": None,
             "cost": str(row["cost"]),

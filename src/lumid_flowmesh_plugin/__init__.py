@@ -39,7 +39,6 @@ def install() -> BaseBindings:
             RunmeshUsageSink(
                 base_url=settings.runmesh_billing_base_url,
                 secret=settings.flowmesh_bridge_secret,
-                org_id=settings.lumid_org_id,
                 email_cache=email_cache,
             ),
         )

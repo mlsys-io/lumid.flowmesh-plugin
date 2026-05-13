@@ -8,7 +8,7 @@ FlowMesh V2 plugin that bridges lum.id identity, Runmesh billing, and supplier a
 |---|---|
 | `IdentityProvider` | Resolves bearer tokens via `POST {LUM_ID_BASE_URL}/oauth/introspect`. Accepts lum.id JWT and `lm_pat_*` PATs. Caches active introspect responses for 60 s, sha256-keyed, capped at 10 k entries. Maps `flowmesh:*` scopes to FlowMesh's vocabulary. Stashes `principal_id → email` for later use by the usage sink. |
 | `SubmissionGuard` | Optional GPU-rental balance preflight against Runmesh. Off by default (`LUMID_BALANCE_GUARD=on` to enable). Fails open on Runmesh outage. |
-| `UsageSink` | Mirrors lumid-tenant usage rows to `POST {RUNMESH_BILLING_BASE_URL}/billing/flowmesh-entry` with `X-Bridge-Secret`. One POST per row; failures logged and dropped. |
+| `UsageSink` | Mirrors usage rows to `POST {RUNMESH_BILLING_BASE_URL}/billing/flowmesh-entry` with `X-Bridge-Secret`. With this plugin as the sole `IdentityProvider`, every authenticated principal came through our resolve path, so every row is forwarded — *except* rows whose `principal_id` isn't in the email cache (anonymous or pre-restart principals Runmesh can't bill). One POST per row; failures logged and dropped. |
 | `SupplierResolver` | Returns `worker.namespace` as the supplier id at dispatch time. |
 
 ## Environment variables
@@ -19,7 +19,7 @@ FlowMesh V2 plugin that bridges lum.id identity, Runmesh billing, and supplier a
 | `RUNMESH_BILLING_BASE_URL` | yes (for billing) | — | e.g. `https://kv.run:8000/Runmesh`. Empty disables sink + guard. |
 | `FLOWMESH_BRIDGE_SECRET` | yes (for billing) | — | Shared secret used as `X-Bridge-Secret`. |
 | `LUMID_BALANCE_GUARD` | no | `off` | `on` to enable preflight balance check. |
-| `LUMID_ORG_ID` | no | `lumid` | Internal org-id stamped on lum.id PrincipalContexts. Usage rows with other org_ids are passed through. |
+| `LUMID_ORG_ID` | no | `lumid` | Stamped on the `PrincipalContext.org_id` returned by the IdentityProvider. Used by the SubmissionGuard to scope its check to lumid principals; the UsageSink ignores it (V2 task records don't preserve the PrincipalContext's org_id). |
 
 ## Loading
 
