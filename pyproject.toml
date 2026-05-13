@@ -1,0 +1,62 @@
+[project]
+name = "lumid-flowmesh-plugin"
+version = "0.1.0"
+description = "FlowMesh plugin that bridges lum.id identity, Runmesh billing, and supplier attribution."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "mlsys-io" },
+]
+dependencies = [
+    "lumid-hooks>=0.1.0",
+    "flowmesh-hook>=0.1.0",
+    "httpx>=0.27",
+    "pydantic>=2.12.3",
+    "fastapi>=0.115",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.urls]
+Homepage = "https://github.com/mlsys-io/lumid.flowmesh-plugin"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lumid_flowmesh_plugin"]
+
+[tool.uv.sources]
+# lumid-hooks and flowmesh-hook are not yet on PyPI; pull from source until they
+# publish. Pinning to main keeps us tracking upstream contracts; switch to
+# version-style entries once both packages are released.
+lumid-hooks = { git = "https://github.com/mlsys-io/lumid.hooks.git", branch = "main" }
+flowmesh-hook = { git = "https://github.com/mlsys-io/FlowMesh.git", subdirectory = "hook", branch = "main" }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[[tool.mypy.overrides]]
+module = "flowmesh_hook"
+ignore_missing_imports = true
