@@ -1,4 +1,4 @@
-"""lumid_flowmesh_plugin — FlowMesh V2 plugin bridging lum.id auth + Runmesh billing.
+"""lumid_flowmesh_plugin — FlowMesh plugin bridging lum.id auth + Runmesh billing.
 
 Entry point is `install()`, called by FlowMesh's plugin loader after the
 process reads `FLOWMESH_PLUGINS=lumid_flowmesh_plugin`. Returns a

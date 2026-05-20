@@ -92,7 +92,7 @@ async def test_emit_skips_rows_without_cached_email(
 async def test_emit_ignores_row_org_id(
     email_cache: TTLCache[str], logger: logging.Logger
 ) -> None:
-    """V2's monitoring builds UsageRow.org_id from the TaskRecord, which our
+    """FlowMesh builds UsageRow.org_id from the TaskRecord, which our
     PrincipalContext does not influence. We must forward rows regardless of
     that field's value."""
     email_cache.set("user-1", "alice@example.com")
