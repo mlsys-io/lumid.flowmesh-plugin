@@ -8,10 +8,7 @@ import respx
 from fastapi import HTTPException
 
 from lumid_flowmesh_plugin._cache import TTLCache
-from lumid_flowmesh_plugin.identity import (
-    LumidIdentityProvider,
-    map_scopes_for_flowmesh,
-)
+from lumid_flowmesh_plugin.identity import LumidIdentityProvider
 
 LUM_ID_BASE = "https://lum.id"
 INTROSPECT_URL = f"{LUM_ID_BASE}/oauth/introspect"
@@ -23,16 +20,6 @@ def _make_provider(email_cache: TTLCache[str]) -> LumidIdentityProvider:
         org_id="lumid",
         email_cache=email_cache,
     )
-
-
-def test_map_scopes_translates_flowmesh_prefix() -> None:
-    assert map_scopes_for_flowmesh(["flowmesh:*"]) == ["*"]
-    assert map_scopes_for_flowmesh(["flowmesh:workers:register"]) == ["workers:register"]
-    assert map_scopes_for_flowmesh(["*"]) == ["*"]
-
-
-def test_map_scopes_drops_unrelated() -> None:
-    assert map_scopes_for_flowmesh(["other:scope", "lumilake:*"]) == []
 
 
 @respx.mock
@@ -60,7 +47,7 @@ async def test_resolve_active_token_returns_principal_and_caches_email(
     assert principal.org_id == "lumid"
     assert principal.external_id == "user-123"
     assert principal.principal_type == "user"
-    assert principal.scopes == ["workers:register"]
+    assert principal.scopes == ["flowmesh:workers:register", "lumilake:*"]
     assert email_cache.get("user-123") == "alice@example.com"
 
 

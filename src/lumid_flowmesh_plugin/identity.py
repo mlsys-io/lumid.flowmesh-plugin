@@ -16,20 +16,6 @@ _INTROSPECT_CAPACITY = 10_000
 _EMAIL_TTL_SEC = 24 * 3600
 _EMAIL_CAPACITY = 10_000
 
-# Subset of FlowMesh's scope vocabulary that lum.id tokens are allowed to claim.
-# Mirrors V1's `ALLOWED_SCOPES` from `src/host/auth/security.py`.
-ALLOWED_SCOPES: frozenset[str] = frozenset(
-    {
-        "*",
-        "guardians:register",
-        "principals:manage",
-        "workers:register",
-        "results:read",
-        "results:write",
-        "system:metrics",
-    }
-)
-
 
 class IntrospectedToken(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -40,28 +26,6 @@ class IntrospectedToken(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     source: str | None = None
     reason: str | None = None
-
-
-def map_scopes_for_flowmesh(scopes: list[str]) -> list[str]:
-    """Translate lum.id's namespaced scopes into FlowMesh's local vocabulary.
-
-    A lum.id PAT minted with `flowmesh:*` or `flowmesh:workers:register`
-    satisfies the existing FlowMesh route guards without changes:
-
-        lum.id scope                    FlowMesh scope
-        *                               *
-        flowmesh:*                      *
-        flowmesh:<svc>:<verb>           <svc>:<verb>
-        anything else                   dropped
-    """
-    out: list[str] = []
-    prefix = "flowmesh:"
-    for s in scopes:
-        if s == "*" or s == f"{prefix}*":
-            out.append("*")
-        elif s.startswith(prefix):
-            out.append(s.removeprefix(prefix))
-    return out
 
 
 class LumidIdentityProvider:
@@ -101,11 +65,6 @@ class LumidIdentityProvider:
             logger.warning("%s: active token missing sub claim", self.name)
             return None
 
-        scopes = [
-            scope
-            for scope in map_scopes_for_flowmesh(introspected.scopes)
-            if scope in ALLOWED_SCOPES
-        ]
         if introspected.email:
             self._email_cache.set(introspected.sub, introspected.email)
 
@@ -114,7 +73,7 @@ class LumidIdentityProvider:
             org_id=self._org_id,
             external_id=introspected.sub,
             principal_type="user",
-            scopes=scopes,
+            scopes=introspected.scopes,
         )
 
     async def _introspect(
