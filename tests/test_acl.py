@@ -93,7 +93,7 @@ async def test_touch_resources_bumps_all_grantees(tmp_path: Path) -> None:
     async with open_store(tmp_path / "acl.sqlite") as (engine, store):
         await store.grant("workflow", "wf-1", "alice")
         await store.grant("workflow", "wf-1", "bob")
-        await _backdate(engine, "workflow", "wf-1", None, days=120)
+        await _backdate_all(engine, "workflow", "wf-1", days=120)
 
         touched = await store.touch_resources([("workflow", "wf-1")])
         assert touched == 2
@@ -103,8 +103,8 @@ async def test_touch_resources_only_matches_listed_refs(tmp_path: Path) -> None:
     async with open_store(tmp_path / "acl.sqlite") as (engine, store):
         await store.grant("workflow", "wf-1", "alice")
         await store.grant("workflow", "wf-2", "alice")
-        await _backdate(engine, "workflow", "wf-1", "alice", days=120)
-        await _backdate(engine, "workflow", "wf-2", "alice", days=120)
+        await _backdate_one(engine, "workflow", "wf-1", "alice", days=120)
+        await _backdate_one(engine, "workflow", "wf-2", "alice", days=120)
 
         touched = await store.touch_resources([("workflow", "wf-1")])
         assert touched == 1
@@ -123,7 +123,7 @@ async def test_touch_resources_empty_input(store: GrantStore) -> None:
 async def test_delete_unrefreshed_clears_pre_session_rows(tmp_path: Path) -> None:
     async with open_store(tmp_path / "acl.sqlite") as (engine, store):
         await store.grant("workflow", "old", "alice")
-        await _backdate(engine, "workflow", "old", "alice", days=120)
+        await _backdate_one(engine, "workflow", "old", "alice", days=120)
         session_start = datetime.now(UTC) - timedelta(seconds=1)
         await store.grant("workflow", "fresh", "alice")
 
@@ -143,23 +143,42 @@ async def test_bootstrap_is_idempotent(tmp_path: Path) -> None:
         await engine.dispose()
 
 
-async def _backdate(
+async def _backdate_one(
     engine: AsyncEngine,
     kind: str,
     resource_id: str,
-    principal_id: str | None,
+    principal_id: str,
     *,
     days: int,
 ) -> None:
-    """Backdate either all grants on a resource (principal_id=None) or one grant."""
     sm = async_sessionmaker(engine, expire_on_commit=False)
     backdated = datetime.now(UTC) - timedelta(days=days)
     async with sm() as session:
-        stmt = update(_Grant).where(
-            _Grant.kind == kind,
-            _Grant.id == resource_id,
+        await session.execute(
+            update(_Grant)
+            .where(
+                _Grant.kind == kind,
+                _Grant.id == resource_id,
+                _Grant.principal_id == principal_id,
+            )
+            .values(granted_at=backdated)
         )
-        if principal_id is not None:
-            stmt = stmt.where(_Grant.principal_id == principal_id)
-        await session.execute(stmt.values(granted_at=backdated))
+        await session.commit()
+
+
+async def _backdate_all(
+    engine: AsyncEngine,
+    kind: str,
+    resource_id: str,
+    *,
+    days: int,
+) -> None:
+    sm = async_sessionmaker(engine, expire_on_commit=False)
+    backdated = datetime.now(UTC) - timedelta(days=days)
+    async with sm() as session:
+        await session.execute(
+            update(_Grant)
+            .where(_Grant.kind == kind, _Grant.id == resource_id)
+            .values(granted_at=backdated)
+        )
         await session.commit()

@@ -131,20 +131,20 @@ class GrantStore:
         return frozenset(rows)
 
     async def touch_resources(
-        self, refs: Iterable[tuple[str, str]]
+        self, pairs: Iterable[tuple[str, str]]
     ) -> int:
-        """Bump ``granted_at`` to ``now`` for every grant on each ``(kind, id)`` in ``refs``.
+        """Bump ``granted_at`` to ``now`` for every grant on each ``(kind, id)`` pair.
 
         Touches every principal's grant on the listed resources, matching the
         multi-principal model. Returns the number of grants touched.
         """
-        pairs = list(refs)
-        if not pairs:
+        materialized = list(pairs)
+        if not materialized:
             return 0
         now = datetime.now(UTC)
         stmt = (
             update(_Grant)
-            .where(tuple_(_Grant.kind, _Grant.id).in_(pairs))
+            .where(tuple_(_Grant.kind, _Grant.id).in_(materialized))
             .values(granted_at=now)
         )
         async with self._sm() as session:

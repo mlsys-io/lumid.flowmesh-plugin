@@ -158,6 +158,35 @@ async def test_purge_stale_preserves_grants_written_after_session_start(
     assert await store.has_grant("worker", "new", "alice") is True
 
 
+async def test_sweep_on_empty_store_is_noop(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    reg = _registrar(store)
+    await reg.refresh([], logger)
+    await reg.purge_stale(logger)
+
+
+async def test_double_sweep_is_idempotent(
+    store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
+) -> None:
+    """A second reconcile in the same boot must not drop grants the first
+    sweep just touched."""
+    store, engine = store_engine
+    session_start = datetime.now(UTC)
+    reg = LumidResourceRegistrar(store, session_start)
+
+    await store.grant("worker", "w-1", "alice")
+    await _backdate_all(engine, "worker", "w-1", days=120)
+
+    refs = [ResourceRef(kind="worker", id="w-1")]
+    await reg.refresh(refs, logger)
+    await reg.purge_stale(logger)
+    await reg.refresh(refs, logger)
+    await reg.purge_stale(logger)
+
+    assert await store.has_grant("worker", "w-1", "alice") is True
+
+
 async def _backdate_all(
     engine: AsyncEngine, kind: str, resource_id: str, *, days: int
 ) -> None:

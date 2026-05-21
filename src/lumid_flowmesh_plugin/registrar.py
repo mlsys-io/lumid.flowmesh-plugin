@@ -17,7 +17,7 @@ fire one.
 """
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Collection
 from datetime import datetime
 
 from lumid_hooks import PrincipalContext, ResourceRef
@@ -75,10 +75,17 @@ class LumidResourceRegistrar:
 
     async def refresh(
         self,
-        resources: Iterable[ResourceRef],
+        resources: Collection[ResourceRef],
         logger: logging.Logger,
     ) -> None:
         pairs = [(r.kind, r.id) for r in resources if r.id is not None]
+        skipped = len(resources) - len(pairs)
+        if skipped:
+            logger.debug(
+                "%s: refresh skipping %d kind-level ref(s)",
+                self.name,
+                skipped,
+            )
         touched = await self._store.touch_resources(pairs)
         logger.debug(
             "%s: refresh requested=%d touched=%d",
