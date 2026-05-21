@@ -39,14 +39,10 @@ def _principal(pid: str) -> PrincipalContext:
     )
 
 
-def _registrar(store: GrantStore) -> LumidResourceRegistrar:
-    return LumidResourceRegistrar(store, datetime.now(UTC))
-
-
 async def test_register_writes_grant(
     store: GrantStore, logger: logging.Logger
 ) -> None:
-    reg = _registrar(store)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
     await reg.register(
         _principal("alice"), ResourceRef(kind="workflow", id="wf-1"), logger
     )
@@ -56,11 +52,11 @@ async def test_register_writes_grant(
 async def test_deregister_removes_all_grants(
     store: GrantStore, logger: logging.Logger
 ) -> None:
-    reg = _registrar(store)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
     await reg.register(
         _principal("alice"), ResourceRef(kind="task", id="t-1"), logger
     )
-    await store.grant("task", "t-1", "bob")  # second grantee added out-of-band
+    await store.grant("task", "t-1", "bob")
     await reg.deregister(
         _principal("alice"), ResourceRef(kind="task", id="t-1"), logger
     )
@@ -71,7 +67,7 @@ async def test_deregister_removes_all_grants(
 async def test_kind_level_register_is_noop(
     store: GrantStore, logger: logging.Logger, caplog: pytest.LogCaptureFixture
 ) -> None:
-    reg = _registrar(store)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
     with caplog.at_level(logging.WARNING):
         await reg.register(
             _principal("alice"), ResourceRef(kind="workflow"), logger
@@ -83,7 +79,7 @@ async def test_kind_level_register_is_noop(
 async def test_kind_level_deregister_is_noop(
     store: GrantStore, logger: logging.Logger
 ) -> None:
-    reg = _registrar(store)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
     await reg.deregister(
         _principal("alice"), ResourceRef(kind="workflow"), logger
     )
@@ -92,7 +88,7 @@ async def test_kind_level_deregister_is_noop(
 async def test_re_register_keeps_principal_grant(
     store: GrantStore, logger: logging.Logger
 ) -> None:
-    reg = _registrar(store)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
     await reg.register(
         _principal("alice"), ResourceRef(kind="worker", id="w-1"), logger
     )
@@ -103,86 +99,67 @@ async def test_re_register_keeps_principal_grant(
     assert await store.list_ids_for_principal("alice", "worker") == frozenset({"w-1"})
 
 
-async def test_refresh_keeps_long_running_grants_alive(
+async def test_reconcile_keeps_long_running_grants_alive(
     store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
 ) -> None:
     store, engine = store_engine
-    session_start = datetime.now(UTC)
-    reg = LumidResourceRegistrar(store, session_start)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
-    # Two principals share a worker registered long ago.
     await store.grant("worker", "w-1", "alice")
     await store.grant("worker", "w-1", "bob")
     await _backdate_all(engine, "worker", "w-1", days=120)
 
-    await reg.refresh([ResourceRef(kind="worker", id="w-1")], logger)
-    await reg.purge_stale(logger)
+    await reg.reconcile([ResourceRef(kind="worker", id="w-1")], logger)
 
     assert await store.has_grant("worker", "w-1", "alice") is True
     assert await store.has_grant("worker", "w-1", "bob") is True
 
 
-async def test_purge_stale_drops_unrefreshed_grants(
+async def test_reconcile_drops_resources_not_in_batch(
     store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
 ) -> None:
     store, engine = store_engine
-    session_start = datetime.now(UTC)
-    reg = LumidResourceRegistrar(store, session_start)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
     await store.grant("workflow", "live", "alice")
     await store.grant("workflow", "forgotten", "alice")
     await _backdate_all(engine, "workflow", "live", days=120)
     await _backdate_all(engine, "workflow", "forgotten", days=120)
 
-    await reg.refresh([ResourceRef(kind="workflow", id="live")], logger)
-    await reg.purge_stale(logger)
+    await reg.reconcile([ResourceRef(kind="workflow", id="live")], logger)
 
     assert await store.has_grant("workflow", "live", "alice") is True
     assert await store.has_grant("workflow", "forgotten", "alice") is False
 
 
-async def test_refresh_ignores_kind_level_refs(
+async def test_reconcile_ignores_kind_level_refs(
     store: GrantStore, logger: logging.Logger
 ) -> None:
-    reg = _registrar(store)
-    await reg.refresh([ResourceRef(kind="workflow")], logger)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
+    await reg.reconcile(
+        [ResourceRef(kind="workflow"), ResourceRef(kind="task")], logger
+    )
 
 
-async def test_purge_stale_preserves_grants_written_after_session_start(
+async def test_reconcile_empty_batch_on_empty_store_is_noop(
     store: GrantStore, logger: logging.Logger
 ) -> None:
-    session_start = datetime.now(UTC) - timedelta(seconds=1)
-    reg = LumidResourceRegistrar(store, session_start)
-    await store.grant("worker", "new", "alice")
-    await reg.purge_stale(logger)
-    assert await store.has_grant("worker", "new", "alice") is True
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
+    await reg.reconcile([], logger)
 
 
-async def test_sweep_on_empty_store_is_noop(
-    store: GrantStore, logger: logging.Logger
-) -> None:
-    reg = _registrar(store)
-    await reg.refresh([], logger)
-    await reg.purge_stale(logger)
-
-
-async def test_double_sweep_is_idempotent(
+async def test_double_reconcile_is_idempotent(
     store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
 ) -> None:
-    """A second reconcile in the same boot must not drop grants the first
-    sweep just touched."""
     store, engine = store_engine
-    session_start = datetime.now(UTC)
-    reg = LumidResourceRegistrar(store, session_start)
+    reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
     await store.grant("worker", "w-1", "alice")
     await _backdate_all(engine, "worker", "w-1", days=120)
 
     refs = [ResourceRef(kind="worker", id="w-1")]
-    await reg.refresh(refs, logger)
-    await reg.purge_stale(logger)
-    await reg.refresh(refs, logger)
-    await reg.purge_stale(logger)
+    await reg.reconcile(refs, logger)
+    await reg.reconcile(refs, logger)
 
     assert await store.has_grant("worker", "w-1", "alice") is True
 

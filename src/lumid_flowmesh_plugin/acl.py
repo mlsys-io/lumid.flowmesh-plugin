@@ -130,42 +130,39 @@ class GrantStore:
             rows = (await session.execute(stmt)).scalars().all()
         return frozenset(rows)
 
-    async def touch_resources(
-        self, pairs: Iterable[tuple[str, str]]
-    ) -> int:
-        """Bump ``granted_at`` to ``now`` for every grant on each ``(kind, id)`` pair.
+    async def reconcile(
+        self,
+        pairs: Iterable[tuple[str, str]],
+        session_start: datetime,
+    ) -> tuple[int, int]:
+        """Replace the store's live set with the listed ``(kind, id)`` pairs.
 
-        Touches every principal's grant on the listed resources, matching the
-        multi-principal model. Returns the number of grants touched.
+        Single transaction: bump ``granted_at`` to ``now`` for every grant
+        matching a pair, then delete every grant whose ``granted_at`` is
+        still older than ``session_start``. On failure the transaction
+        rolls back and the store is unchanged. Returns ``(touched, deleted)``.
+
+        ``session_start`` is the cutoff used to recognise stale rows.
+        Callers typically capture it at plugin-load time so grants written
+        between load and the host's reconcile call (e.g. by other startup
+        registrations) survive the sweep.
         """
         materialized = list(pairs)
-        if not materialized:
-            return 0
         now = datetime.now(UTC)
-        stmt = (
-            update(_Grant)
-            .where(tuple_(_Grant.kind, _Grant.id).in_(materialized))
-            .values(granted_at=now)
-        )
-        async with self._sm() as session:
-            result = await session.execute(stmt)
-            await session.commit()
-            rowcount: int = result.rowcount  # type: ignore[attr-defined]
-            return rowcount
-
-    async def delete_unrefreshed(self, session_start: datetime) -> int:
-        """Delete grants whose ``granted_at`` is earlier than ``session_start``.
-
-        Paired with ``touch_resources``: any grant not touched during the
-        current host's reconcile sweep keeps its pre-sweep timestamp and is
-        cleared here.
-        """
-        stmt = delete(_Grant).where(_Grant.granted_at < session_start)
-        async with self._sm() as session:
-            result = await session.execute(stmt)
-            await session.commit()
-            rowcount: int = result.rowcount  # type: ignore[attr-defined]
-            return rowcount
+        async with self._sm() as session, session.begin():
+            touched = 0
+            if materialized:
+                touch_stmt = (
+                    update(_Grant)
+                    .where(tuple_(_Grant.kind, _Grant.id).in_(materialized))
+                    .values(granted_at=now)
+                )
+                touch_result = await session.execute(touch_stmt)
+                touched = touch_result.rowcount  # type: ignore[attr-defined]
+            delete_stmt = delete(_Grant).where(_Grant.granted_at < session_start)
+            delete_result = await session.execute(delete_stmt)
+            deleted: int = delete_result.rowcount  # type: ignore[attr-defined]
+        return touched, deleted
 
 
 @asynccontextmanager

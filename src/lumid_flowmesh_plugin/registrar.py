@@ -5,10 +5,10 @@ each WORKFLOW / TASK / NODE / WORKER is persisted, and ``deregister`` after
 each hard-delete. We write a grant on register and wipe every grant on the
 resource on deregister, so the PermissionChecker can read the current set.
 
-At startup FlowMesh also runs a reconcile sweep — ``refresh`` is called
-once with every live resource, then ``purge_stale`` once to drop any
-grant the sweep didn't touch. ``session_start`` (set when the plugin
-loads) marks the boundary.
+At startup FlowMesh also runs a reconcile sweep — ``reconcile`` is called
+once with every live resource. The plugin runs a single transaction that
+refreshes grants on listed resources and drops anything else; on failure
+the transaction rolls back so partial sweeps never wipe live grants.
 
 Kind-level refs (``resource.id is None``) on register/deregister are
 no-ops with a logged warning — they shouldn't reach a registrar in
@@ -73,7 +73,7 @@ class LumidResourceRegistrar:
             principal.principal_id,
         )
 
-    async def refresh(
+    async def reconcile(
         self,
         resources: Collection[ResourceRef],
         logger: logging.Logger,
@@ -82,23 +82,15 @@ class LumidResourceRegistrar:
         skipped = len(resources) - len(pairs)
         if skipped:
             logger.debug(
-                "%s: refresh skipping %d kind-level ref(s)",
+                "%s: reconcile skipping %d kind-level ref(s)",
                 self.name,
                 skipped,
             )
-        touched = await self._store.touch_resources(pairs)
-        logger.debug(
-            "%s: refresh requested=%d touched=%d",
+        touched, deleted = await self._store.reconcile(pairs, self._session_start)
+        logger.info(
+            "%s: reconcile requested=%d touched=%d deleted=%d",
             self.name,
             len(pairs),
             touched,
-        )
-
-    async def purge_stale(self, logger: logging.Logger) -> None:
-        removed = await self._store.delete_unrefreshed(self._session_start)
-        logger.info(
-            "%s: purge_stale removed=%d session_start=%s",
-            self.name,
-            removed,
-            self._session_start.isoformat(),
+            deleted,
         )
