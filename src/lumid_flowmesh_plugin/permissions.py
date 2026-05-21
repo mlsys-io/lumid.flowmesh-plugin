@@ -8,20 +8,18 @@ Authorization policy:
 
   | (kind, action)        | scope                          |
   |-----------------------|--------------------------------|
+  | WORKFLOW, READ        | `flowmesh:workflows:read`      |
   | WORKFLOW, WRITE       | `flowmesh:workflows:write`     |
+  | TASK, READ            | `flowmesh:tasks:read`          |
+  | RESULT, READ          | `flowmesh:results:read`        |
+  | NODE, READ            | `flowmesh:nodes:read`          |
   | NODE, WRITE           | `flowmesh:nodes:write`         |
+  | WORKER, READ          | `flowmesh:workers:read`        |
   | WORKER, WRITE         | `flowmesh:workers:write`       |
   | SYSTEM, READ          | `flowmesh:system:read`         |
 
-  No scope is defined for TASK or RESULT kind-level — tasks are created
-  via workflow submission, results are inferred from tasks.
-
-* **Concrete-id checks** allow if the principal owns the row in the
-  ACL store. SYSTEM is the exception: a principal with
-  `flowmesh:system:read` may read any SYSTEM resource by id.
-
-* **accessible_ids** returns the set of ids the principal owns, or
-  `None` for admins (no filter applied).
+* **Concrete-id checks** allow the owner.
+* **accessible_ids** returns the principal's owned ids, or `None` for admins.
 """
 
 import logging
@@ -34,16 +32,19 @@ from .acl import OwnershipStore
 
 _ADMIN_SCOPES: frozenset[str] = frozenset({"*", "flowmesh:*", "flowmesh:admin"})
 
-# Maps (kind, action) to the scope that authorizes the kind-level operation.
-# Anything not in this map is implicitly admin-only at kind level.
+# Maps (kind, action) to the scope that authorizes that kind-level operation.
+# Anything not in this map is admin-only at kind level.
 _KIND_LEVEL_SCOPES: dict[tuple[str, str], str] = {
+    (ResourceKind.WORKFLOW.value, ResourceAction.READ.value): "flowmesh:workflows:read",
     (ResourceKind.WORKFLOW.value, ResourceAction.WRITE.value): "flowmesh:workflows:write",
+    (ResourceKind.TASK.value, ResourceAction.READ.value): "flowmesh:tasks:read",
+    (ResourceKind.RESULT.value, ResourceAction.READ.value): "flowmesh:results:read",
+    (ResourceKind.NODE.value, ResourceAction.READ.value): "flowmesh:nodes:read",
     (ResourceKind.NODE.value, ResourceAction.WRITE.value): "flowmesh:nodes:write",
+    (ResourceKind.WORKER.value, ResourceAction.READ.value): "flowmesh:workers:read",
     (ResourceKind.WORKER.value, ResourceAction.WRITE.value): "flowmesh:workers:write",
     (ResourceKind.SYSTEM.value, ResourceAction.READ.value): "flowmesh:system:read",
 }
-
-_SYSTEM_READ_SCOPE = "flowmesh:system:read"
 
 
 def _is_admin(principal: PrincipalContext) -> bool:
@@ -79,12 +80,6 @@ class LumidPermissionChecker:
 
         owner = await self._store.get(resource.kind, resource.id)
         if owner == principal.principal_id:
-            return
-        if (
-            resource.kind == ResourceKind.SYSTEM.value
-            and action == ResourceAction.READ.value
-            and _SYSTEM_READ_SCOPE in principal.scopes
-        ):
             return
         raise self._deny(
             logger,

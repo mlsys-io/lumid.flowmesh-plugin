@@ -22,12 +22,12 @@ lum.id PATs mint against this list; the `PermissionChecker` reads it:
 | Scope | Grants |
 |---|---|
 | `*` / `flowmesh:*` / `flowmesh:admin` | Admin bypass — all kinds, all actions. |
+| `flowmesh:workflows:read` / `flowmesh:tasks:read` / `flowmesh:results:read` / `flowmesh:nodes:read` / `flowmesh:workers:read` / `flowmesh:system:read` | Call kind-level READ endpoints. Returned resources are filtered to the principal's own. |
 | `flowmesh:workflows:write` | Create workflows. |
 | `flowmesh:nodes:write` | Register nodes. |
 | `flowmesh:workers:write` | Register workers. |
-| `flowmesh:system:read` | Read SYSTEM resources (cluster metrics). Also grants per-id reads on SYSTEM resources without ownership. |
 
-No scope is defined for `TASK` or `RESULT` at kind level — tasks are created via workflow submission, and result ownership is inferred from the owning task. Both reduce to concrete-id ownership checks.
+Concrete-id access is owner-only (admin aside).
 
 ## Environment variables
 

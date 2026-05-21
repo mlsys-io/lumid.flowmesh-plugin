@@ -30,6 +30,7 @@ def _principal(pid: str, *scopes: str) -> PrincipalContext:
 
 
 WF = ResourceKind.WORKFLOW.value
+TASK = ResourceKind.TASK.value
 NODE = ResourceKind.NODE.value
 WORKER = ResourceKind.WORKER.value
 SYSTEM = ResourceKind.SYSTEM.value
@@ -58,8 +59,13 @@ async def test_admin_bypass_all_actions(
 @pytest.mark.parametrize(
     "kind,action,scope",
     [
+        (WF, READ, "flowmesh:workflows:read"),
         (WF, WRITE, "flowmesh:workflows:write"),
+        (TASK, READ, "flowmesh:tasks:read"),
+        (RESULT, READ, "flowmesh:results:read"),
+        (NODE, READ, "flowmesh:nodes:read"),
         (NODE, WRITE, "flowmesh:nodes:write"),
+        (WORKER, READ, "flowmesh:workers:read"),
         (WORKER, WRITE, "flowmesh:workers:write"),
         (SYSTEM, READ, "flowmesh:system:read"),
     ],
@@ -127,27 +133,15 @@ async def test_concrete_id_unknown_resource_denied(
     assert exc.value.status_code == 403
 
 
-async def test_system_read_with_scope_bypasses_ownership(
+async def test_concrete_id_non_owner_with_read_scope_denied(
     store: OwnershipStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    # No ACL row exists for this system resource.
-    await checker.require(
-        _principal("ops", "flowmesh:system:read"),
-        ResourceRef(kind=SYSTEM, id="metrics-cluster"),
-        READ,
-        logger,
-    )
-
-
-async def test_system_read_without_scope_denied(
-    store: OwnershipStore, logger: logging.Logger
-) -> None:
-    checker = LumidPermissionChecker(store)
+    await store.set(WF, "wf-1", "alice")
     with pytest.raises(HTTPException) as exc:
         await checker.require(
-            _principal("user"),
-            ResourceRef(kind=SYSTEM, id="metrics-cluster"),
+            _principal("ops", "flowmesh:workflows:read"),
+            ResourceRef(kind=WF, id="wf-1"),
             READ,
             logger,
         )
@@ -186,3 +180,15 @@ async def test_accessible_ids_admin_returns_none(
     assert (
         await checker.accessible_ids(_principal("alice", "*"), WF, READ, logger) is None
     )
+
+
+async def test_accessible_ids_with_read_scope_returns_owned(
+    store: OwnershipStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    await store.set(WF, "wf-1", "alice")
+    await store.set(WF, "wf-2", "bob")
+    result = await checker.accessible_ids(
+        _principal("alice", "flowmesh:workflows:read"), WF, READ, logger
+    )
+    assert result == frozenset({"wf-1"})
