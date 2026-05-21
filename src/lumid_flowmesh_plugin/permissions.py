@@ -1,4 +1,4 @@
-"""LumidPermissionChecker — admin bypass + scope vocabulary + ownership.
+"""LumidPermissionChecker — admin bypass + scope vocabulary + grants.
 
 Authorization policy:
 
@@ -18,8 +18,8 @@ Authorization policy:
   | WORKER, WRITE         | `flowmesh:workers:write`       |
   | SYSTEM, READ          | `flowmesh:system:read`         |
 
-* **Concrete-id checks** allow the owner.
-* **accessible_ids** returns the principal's owned ids, or `None` for admins.
+* **Concrete-id checks** allow any principal with a grant on the resource.
+* **accessible_ids** returns the principal's granted ids, or `None` for admins.
 """
 
 import logging
@@ -28,7 +28,7 @@ from fastapi import HTTPException, status
 from flowmesh_hook import ResourceAction, ResourceKind
 from lumid_hooks import PrincipalContext, ResourceRef
 
-from .acl import OwnershipStore
+from .acl import GrantStore
 
 _ADMIN_SCOPES: frozenset[str] = frozenset({"*", "flowmesh:*", "flowmesh:admin"})
 
@@ -54,7 +54,7 @@ def _is_admin(principal: PrincipalContext) -> bool:
 class LumidPermissionChecker:
     name = "lumid_flowmesh_plugin.permissions"
 
-    def __init__(self, store: OwnershipStore) -> None:
+    def __init__(self, store: GrantStore) -> None:
         self._store = store
 
     async def require(
@@ -78,13 +78,12 @@ class LumidPermissionChecker:
                 f"kind-level {action} on {resource.kind} is admin-only",
             )
 
-        owner = await self._store.get(resource.kind, resource.id)
-        if owner == principal.principal_id:
+        if await self._store.has_grant(resource.kind, resource.id, principal.principal_id):
             return
         raise self._deny(
             logger,
             f"{action} on {resource.kind}/{resource.id} denied for "
-            f"principal {principal.principal_id} (owner={owner})",
+            f"principal {principal.principal_id}",
         )
 
     async def accessible_ids(

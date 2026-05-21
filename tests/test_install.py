@@ -1,5 +1,6 @@
 """Tests for the `install()` async ctx-manager entry point."""
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -72,18 +73,12 @@ async def test_install_skips_billing_when_secret_missing(
 
 
 async def test_install_bootstraps_acl_schema(tmp_path: Path) -> None:
-    # After install(), the SQLite file exists and has the acl_ownership table.
     db_path = tmp_path / "acl.sqlite"
-    import os
-
-    os.environ["LUMID_ACL_DB_PATH"] = str(db_path)
     async with install() as _bindings:
         assert db_path.exists()
-    # Connect with stdlib sqlite3 to verify schema after engine.dispose().
-    import sqlite3
 
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
-    assert ("acl_ownership",) in rows
+    assert ("acl_grants",) in rows

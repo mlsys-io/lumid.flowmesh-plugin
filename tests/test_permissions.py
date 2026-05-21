@@ -9,12 +9,12 @@ from fastapi import HTTPException
 from flowmesh_hook import ResourceAction, ResourceKind
 from lumid_hooks import PrincipalContext, ResourceRef
 
-from lumid_flowmesh_plugin.acl import OwnershipStore, open_store
+from lumid_flowmesh_plugin.acl import GrantStore, open_store
 from lumid_flowmesh_plugin.permissions import LumidPermissionChecker
 
 
 @pytest.fixture
-async def store(tmp_path: Path) -> AsyncIterator[OwnershipStore]:
+async def store(tmp_path: Path) -> AsyncIterator[GrantStore]:
     async with open_store(tmp_path / "acl.sqlite") as (_engine, s):
         yield s
 
@@ -42,7 +42,7 @@ CANCEL = ResourceAction.CANCEL.value
 
 @pytest.mark.parametrize("admin_scope", ["*", "flowmesh:*", "flowmesh:admin"])
 async def test_admin_bypass_all_actions(
-    store: OwnershipStore, logger: logging.Logger, admin_scope: str
+    store: GrantStore, logger: logging.Logger, admin_scope: str
 ) -> None:
     checker = LumidPermissionChecker(store)
     # Kind-level and concrete-id, both pass with no ACL row at all.
@@ -71,14 +71,14 @@ async def test_admin_bypass_all_actions(
     ],
 )
 async def test_kind_level_scope_grants_access(
-    store: OwnershipStore, logger: logging.Logger, kind: str, action: str, scope: str
+    store: GrantStore, logger: logging.Logger, kind: str, action: str, scope: str
 ) -> None:
     checker = LumidPermissionChecker(store)
     await checker.require(_principal("alice", scope), ResourceRef(kind=kind), action, logger)
 
 
 async def test_kind_level_denies_without_scope(
-    store: OwnershipStore, logger: logging.Logger
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
     with pytest.raises(HTTPException) as exc:
@@ -87,7 +87,7 @@ async def test_kind_level_denies_without_scope(
 
 
 async def test_kind_level_denies_with_wrong_scope(
-    store: OwnershipStore, logger: logging.Logger
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
     # Has nodes:write but tries to create a workflow.
@@ -101,29 +101,40 @@ async def test_kind_level_denies_with_wrong_scope(
     assert exc.value.status_code == 403
 
 
-async def test_concrete_id_owner_allowed(
-    store: OwnershipStore, logger: logging.Logger
+async def test_concrete_id_grantee_allowed(
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.set(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-1", "alice")
     for action in (READ, WRITE, CANCEL):
         await checker.require(
             _principal("alice"), ResourceRef(kind=WF, id="wf-1"), action, logger
         )
 
 
-async def test_concrete_id_non_owner_denied(
-    store: OwnershipStore, logger: logging.Logger
+async def test_concrete_id_second_grantee_allowed(
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.set(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-1", "bob")
+    await checker.require(
+        _principal("bob"), ResourceRef(kind=WF, id="wf-1"), READ, logger
+    )
+
+
+async def test_concrete_id_non_grantee_denied(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    await store.grant(WF, "wf-1", "alice")
     with pytest.raises(HTTPException) as exc:
         await checker.require(_principal("bob"), ResourceRef(kind=WF, id="wf-1"), READ, logger)
     assert exc.value.status_code == 403
 
 
 async def test_concrete_id_unknown_resource_denied(
-    store: OwnershipStore, logger: logging.Logger
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
     with pytest.raises(HTTPException) as exc:
@@ -133,11 +144,11 @@ async def test_concrete_id_unknown_resource_denied(
     assert exc.value.status_code == 403
 
 
-async def test_concrete_id_non_owner_with_read_scope_denied(
-    store: OwnershipStore, logger: logging.Logger
+async def test_concrete_id_non_grantee_with_read_scope_denied(
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.set(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-1", "alice")
     with pytest.raises(HTTPException) as exc:
         await checker.require(
             _principal("ops", "flowmesh:workflows:read"),
@@ -148,23 +159,23 @@ async def test_concrete_id_non_owner_with_read_scope_denied(
     assert exc.value.status_code == 403
 
 
-async def test_result_kind_owner_only(
-    store: OwnershipStore, logger: logging.Logger
+async def test_result_kind_grantee_only(
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.set(RESULT, "r-1", "alice")
+    await store.grant(RESULT, "r-1", "alice")
     await checker.require(_principal("alice"), ResourceRef(kind=RESULT, id="r-1"), READ, logger)
     with pytest.raises(HTTPException):
         await checker.require(_principal("bob"), ResourceRef(kind=RESULT, id="r-1"), READ, logger)
 
 
-async def test_accessible_ids_returns_owned_set(
-    store: OwnershipStore, logger: logging.Logger
+async def test_accessible_ids_returns_granted_set(
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.set(WF, "wf-1", "alice")
-    await store.set(WF, "wf-2", "alice")
-    await store.set(WF, "wf-3", "bob")
+    await store.grant(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-2", "alice")
+    await store.grant(WF, "wf-3", "bob")
     assert await checker.accessible_ids(_principal("alice"), WF, READ, logger) == frozenset(
         {"wf-1", "wf-2"}
     )
@@ -173,8 +184,20 @@ async def test_accessible_ids_returns_owned_set(
     )
 
 
+async def test_accessible_ids_includes_shared_resources(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    await store.grant(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-1", "bob")
+    await store.grant(WF, "wf-2", "bob")
+    assert await checker.accessible_ids(_principal("bob"), WF, READ, logger) == frozenset(
+        {"wf-1", "wf-2"}
+    )
+
+
 async def test_accessible_ids_admin_returns_none(
-    store: OwnershipStore, logger: logging.Logger
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
     assert (
@@ -182,12 +205,12 @@ async def test_accessible_ids_admin_returns_none(
     )
 
 
-async def test_accessible_ids_with_read_scope_returns_owned(
-    store: OwnershipStore, logger: logging.Logger
+async def test_accessible_ids_with_read_scope_returns_granted(
+    store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.set(WF, "wf-1", "alice")
-    await store.set(WF, "wf-2", "bob")
+    await store.grant(WF, "wf-1", "alice")
+    await store.grant(WF, "wf-2", "bob")
     result = await checker.accessible_ids(
         _principal("alice", "flowmesh:workflows:read"), WF, READ, logger
     )

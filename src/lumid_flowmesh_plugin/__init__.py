@@ -14,7 +14,7 @@ from flowmesh_hook import BaseBindings
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ._cache import TTLCache
-from .acl import OwnershipStore, bootstrap_schema, make_engine
+from .acl import GrantStore, bootstrap_schema, make_engine
 from .config import load_settings
 from .identity import (
     _EMAIL_CAPACITY,
@@ -40,7 +40,7 @@ async def install() -> AsyncIterator[BaseBindings]:
     try:
         await bootstrap_schema(engine)
         sm = async_sessionmaker(engine, expire_on_commit=False)
-        store = OwnershipStore(sm)
+        store = GrantStore(sm)
         pruned = await store.prune_older_than(settings.lumid_acl_ttl_days)
         if pruned:
             _log.info(
