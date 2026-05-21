@@ -8,7 +8,7 @@ FlowMesh plugin that bridges lum.id identity, permission checking, Runmesh billi
 |---|---|
 | `IdentityProvider` | Resolves bearer tokens via `POST {LUM_ID_BASE_URL}/oauth/introspect`. Accepts lum.id JWT and `lm_pat_*` PATs. Caches active introspect responses for 60 s, sha256-keyed, capped at 10 k entries. lum.id scopes pass through verbatim onto `PrincipalContext.scopes`. Stashes `principal_id → email` for later use by the usage sink. |
 | `PermissionChecker` | Admin-bypass + scope-driven kind-level checks + grant-driven concrete-id checks. See [Scope vocabulary](#scope-vocabulary) below. Reads grants from the SQLite ACL written by `ResourceRegistrar`. |
-| `ResourceRegistrar` | Mirrors FlowMesh's resource lifecycle (`register` on create, `deregister` on hard-delete) into a SQLite grants table at `LUMID_ACL_DB_PATH`. The table is keyed by `(kind, id, principal_id)`, so multiple principals can hold grants on the same resource. Default path lives under FlowMesh's `FLOWMESH_PLUGIN_DATA_DIR` mount so the ACL survives restarts. |
+| `ResourceRegistrar` | Mirrors FlowMesh's resource lifecycle (`register` on create, `deregister` on hard-delete, `refresh` + `purge_stale` at startup reconcile) into a SQLite grants table at `LUMID_ACL_DB_PATH`. The table is keyed by `(kind, id, principal_id)`, so multiple principals can hold grants on the same resource. Default path lives under FlowMesh's `FLOWMESH_PLUGIN_DATA_DIR` mount so the ACL survives restarts. |
 | `SubmissionGuard` | Optional GPU-rental balance preflight against Runmesh. Off by default (`LUMID_BALANCE_GUARD=on` to enable). Fails open on Runmesh outage. |
 | `UsageSink` | Mirrors usage rows to `POST {RUNMESH_BILLING_BASE_URL}/billing/flowmesh-entry` with `X-Bridge-Secret`. With this plugin as the sole `IdentityProvider`, every authenticated principal came through our resolve path, so every row is forwarded — *except* rows whose `principal_id` isn't in the email cache (anonymous or pre-restart principals Runmesh can't bill). One POST per row; failures logged and dropped. |
 | `SupplierResolver` | Returns `worker.namespace` as the supplier id at dispatch time. |
@@ -39,7 +39,6 @@ Concrete-id access requires a grant on the resource (admin aside).
 | `LUMID_BALANCE_GUARD` | no | `off` | `on` to enable preflight balance check. |
 | `LUMID_ORG_ID` | no | `lumid` | Stamped on the `PrincipalContext.org_id` returned by the IdentityProvider. Used by the SubmissionGuard to scope its check to lumid principals; the UsageSink ignores it (task records don't preserve the PrincipalContext's `org_id`). |
 | `LUMID_ACL_DB_PATH` | no | `/app/plugin-data/lumid_acl.sqlite` | SQLite file for the `ResourceRegistrar` / `PermissionChecker` grants table. The default path lives under FlowMesh's `FLOWMESH_PLUGIN_DATA_DIR` mount; override only if you keep plugin state elsewhere. |
-| `LUMID_ACL_TTL_DAYS` | no | `90` | Prune ACL rows older than this on startup. `0` disables pruning. This TTL bounds the worst-case growth from crash-during-delete; `deregister` is the steady-state cleanup. |
 
 ## Loading
 
@@ -67,11 +66,11 @@ Requires `sqlalchemy[asyncio]`, `aiosqlite`, `httpx`, `pydantic`, `fastapi`, `lu
 
 ### Overlay image
 
-Build a derived image that installs the wheel:
+Build a derived image that installs the plugin from git:
 
 ```dockerfile
 FROM ghcr.io/mlsys-io/flowmesh_server:<pinned-tag>
-RUN pip install lumid-flowmesh-plugin==<version>
+RUN pip install git+https://github.com/mlsys-io/lumid.flowmesh-plugin@v<version>
 ```
 
 Push to your registry and point the stack at it via `FLOWMESH_REGISTRY` / `FLOWMESH_VERSION` (or `flowmesh stack up --image-tag <tag>`).

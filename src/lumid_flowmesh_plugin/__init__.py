@@ -6,9 +6,9 @@ process reads `FLOWMESH_PLUGINS=lumid_flowmesh_plugin`. Yields a
 and disposes the ACL SQLite engine on shutdown.
 """
 
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from flowmesh_hook import BaseBindings
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -28,8 +28,6 @@ from .submission import RunmeshBalanceGuard
 from .supplier import NamespaceSupplierResolver
 from .usage import RunmeshUsageSink
 
-_log = logging.getLogger("lumid_flowmesh_plugin.install")
-
 
 @asynccontextmanager
 async def install() -> AsyncIterator[BaseBindings]:
@@ -41,13 +39,7 @@ async def install() -> AsyncIterator[BaseBindings]:
         await bootstrap_schema(engine)
         sm = async_sessionmaker(engine, expire_on_commit=False)
         store = GrantStore(sm)
-        pruned = await store.prune_older_than(settings.lumid_acl_ttl_days)
-        if pruned:
-            _log.info(
-                "Pruned %d stale ACL row(s) older than %d days",
-                pruned,
-                settings.lumid_acl_ttl_days,
-            )
+        session_start = datetime.now(UTC)
 
         identity = LumidIdentityProvider(
             base_url=settings.lum_id_base_url,
@@ -56,7 +48,7 @@ async def install() -> AsyncIterator[BaseBindings]:
         )
         supplier = NamespaceSupplierResolver()
         permission_checker = LumidPermissionChecker(store)
-        registrar = LumidResourceRegistrar(store)
+        registrar = LumidResourceRegistrar(store, session_start)
 
         submission_guards: tuple[RunmeshBalanceGuard, ...] = ()
         usage_sinks: tuple[RunmeshUsageSink, ...] = ()

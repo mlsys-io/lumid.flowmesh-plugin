@@ -3,16 +3,17 @@
 One table, ``acl_grants``, keyed by ``(kind, id, principal_id)``. Each row is
 one grant: principal P is permitted to act on (kind, id). Rows are written by
 ``LumidResourceRegistrar.register`` at resource creation time and read by
-``LumidPermissionChecker`` on every authz decision. Stale rows are trimmed by
-``prune_older_than`` at startup; ``deregister`` is the steady-state cleanup.
+``LumidPermissionChecker`` on every authz decision. Stale rows are cleared
+by the host's startup reconcile sweep, which touches every live resource
+and then drops anything left untouched.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Index, delete, exists, select
+from sqlalchemy import Index, delete, exists, select, tuple_, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -63,8 +64,7 @@ class GrantStore:
     async def grant(self, kind: str, resource_id: str, principal_id: str) -> None:
         """Upsert a grant for ``(kind, resource_id, principal_id)`` with ``now``.
 
-        Re-granting refreshes ``granted_at``, which keeps the row outside the
-        prune window for another TTL.
+        Re-granting refreshes ``granted_at``.
         """
         now = datetime.now(UTC)
         stmt = sqlite_insert(_Grant).values(
@@ -130,15 +130,37 @@ class GrantStore:
             rows = (await session.execute(stmt)).scalars().all()
         return frozenset(rows)
 
-    async def prune_older_than(self, ttl_days: int) -> int:
-        """Delete grants whose ``granted_at`` is older than ``ttl_days``.
+    async def touch_resources(
+        self, refs: Iterable[tuple[str, str]]
+    ) -> int:
+        """Bump ``granted_at`` to ``now`` for every grant on each ``(kind, id)`` in ``refs``.
 
-        Returns the number of rows pruned. ``ttl_days <= 0`` is a no-op.
+        Touches every principal's grant on the listed resources, matching the
+        multi-principal model. Returns the number of grants touched.
         """
-        if ttl_days <= 0:
+        pairs = list(refs)
+        if not pairs:
             return 0
-        cutoff = datetime.now(UTC) - timedelta(days=ttl_days)
-        stmt = delete(_Grant).where(_Grant.granted_at < cutoff)
+        now = datetime.now(UTC)
+        stmt = (
+            update(_Grant)
+            .where(tuple_(_Grant.kind, _Grant.id).in_(pairs))
+            .values(granted_at=now)
+        )
+        async with self._sm() as session:
+            result = await session.execute(stmt)
+            await session.commit()
+            rowcount: int = result.rowcount  # type: ignore[attr-defined]
+            return rowcount
+
+    async def delete_unrefreshed(self, session_start: datetime) -> int:
+        """Delete grants whose ``granted_at`` is earlier than ``session_start``.
+
+        Paired with ``touch_resources``: any grant not touched during the
+        current host's reconcile sweep keeps its pre-sweep timestamp and is
+        cleared here.
+        """
+        stmt = delete(_Grant).where(_Grant.granted_at < session_start)
         async with self._sm() as session:
             result = await session.execute(stmt)
             await session.commit()

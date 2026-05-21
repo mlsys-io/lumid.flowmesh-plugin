@@ -9,7 +9,7 @@ authors = [
     { name = "mlsys-io" },
 ]
 dependencies = [
-    "lumid-hooks>=0.1.0,<0.2.0",
+    "lumid-hooks>=0.2.0",
     "flowmesh-hook>=0.1.0",
     "httpx>=0.27",
     "pydantic>=2.12.3",
@@ -55,3 +55,8 @@ strict = true
 [[tool.mypy.overrides]]
 module = "flowmesh_hook"
 ignore_missing_imports = true
+
+[tool.uv.sources]
+# Local development against the in-flight lumid-hooks 0.2.0; drop once
+# 0.2.0 is published to PyPI.
+lumid-hooks = { path = "../lumid.hooks", editable = true }
