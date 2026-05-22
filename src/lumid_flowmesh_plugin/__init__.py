@@ -3,7 +3,7 @@
 Entry point is `install()`, called by FlowMesh's plugin loader after the
 process reads `FLOWMESH_PLUGINS=lumid_flowmesh_plugin`. Yields a
 `flowmesh_hook.BaseBindings` carrying every hook this package registers,
-and disposes the ACL SQLite engine on shutdown.
+and closes the ACL SQLite connection on shutdown.
 """
 
 from collections.abc import AsyncIterator
@@ -11,10 +11,9 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from flowmesh_hook import BaseBindings
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ._cache import TTLCache
-from .acl import GrantStore, bootstrap_schema, make_engine
+from .acl import open_store
 from .config import load_settings
 from .identity import (
     _EMAIL_CAPACITY,
@@ -34,11 +33,7 @@ async def install() -> AsyncIterator[BaseBindings]:
     settings = load_settings()
     email_cache: TTLCache[str] = TTLCache(ttl_sec=_EMAIL_TTL_SEC, capacity=_EMAIL_CAPACITY)
 
-    engine = make_engine(settings.lumid_acl_db_path)
-    try:
-        await bootstrap_schema(engine)
-        sm = async_sessionmaker(engine, expire_on_commit=False)
-        store = GrantStore(sm)
+    async with open_store(settings.lumid_acl_db_path) as store:
         session_start = datetime.now(UTC)
 
         identity = LumidIdentityProvider(
@@ -79,8 +74,6 @@ async def install() -> AsyncIterator[BaseBindings]:
             permission_checkers=(permission_checker,),
             resource_registrars=(registrar,),
         )
-    finally:
-        await engine.dispose()
 
 
 __all__ = [

@@ -1,32 +1,30 @@
 """Tests for LumidResourceRegistrar."""
 
 import logging
+import sqlite3
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from lumid_hooks import PrincipalContext, ResourceRef
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from lumid_flowmesh_plugin.acl import GrantStore, _Grant, open_store
+from lumid_flowmesh_plugin.acl import GrantStore, open_store
 from lumid_flowmesh_plugin.registrar import LumidResourceRegistrar
 
 
 @pytest.fixture
-async def store_engine(
+async def store_db(
     tmp_path: Path,
-) -> AsyncIterator[tuple[GrantStore, AsyncEngine]]:
-    async with open_store(tmp_path / "acl.sqlite") as (engine, s):
-        yield s, engine
+) -> AsyncIterator[tuple[GrantStore, Path]]:
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as s:
+        yield s, db
 
 
 @pytest.fixture
-async def store(
-    store_engine: tuple[GrantStore, AsyncEngine],
-) -> GrantStore:
-    return store_engine[0]
+async def store(store_db: tuple[GrantStore, Path]) -> GrantStore:
+    return store_db[0]
 
 
 def _principal(pid: str) -> PrincipalContext:
@@ -100,14 +98,14 @@ async def test_re_register_keeps_principal_grant(
 
 
 async def test_reconcile_keeps_long_running_grants_alive(
-    store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
+    store_db: tuple[GrantStore, Path], logger: logging.Logger
 ) -> None:
-    store, engine = store_engine
+    store, db = store_db
     reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
     await store.grant("worker", "w-1", "alice")
     await store.grant("worker", "w-1", "bob")
-    await _backdate_all(engine, "worker", "w-1", days=120)
+    _backdate_all(db, "worker", "w-1", days=120)
 
     await reg.reconcile([ResourceRef(kind="worker", id="w-1")], logger)
 
@@ -116,15 +114,15 @@ async def test_reconcile_keeps_long_running_grants_alive(
 
 
 async def test_reconcile_drops_resources_not_in_batch(
-    store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
+    store_db: tuple[GrantStore, Path], logger: logging.Logger
 ) -> None:
-    store, engine = store_engine
+    store, db = store_db
     reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
     await store.grant("workflow", "live", "alice")
     await store.grant("workflow", "forgotten", "alice")
-    await _backdate_all(engine, "workflow", "live", days=120)
-    await _backdate_all(engine, "workflow", "forgotten", days=120)
+    _backdate_all(db, "workflow", "live", days=120)
+    _backdate_all(db, "workflow", "forgotten", days=120)
 
     await reg.reconcile([ResourceRef(kind="workflow", id="live")], logger)
 
@@ -149,13 +147,13 @@ async def test_reconcile_empty_batch_on_empty_store_is_noop(
 
 
 async def test_double_reconcile_is_idempotent(
-    store_engine: tuple[GrantStore, AsyncEngine], logger: logging.Logger
+    store_db: tuple[GrantStore, Path], logger: logging.Logger
 ) -> None:
-    store, engine = store_engine
+    store, db = store_db
     reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
     await store.grant("worker", "w-1", "alice")
-    await _backdate_all(engine, "worker", "w-1", days=120)
+    _backdate_all(db, "worker", "w-1", days=120)
 
     refs = [ResourceRef(kind="worker", id="w-1")]
     await reg.reconcile(refs, logger)
@@ -164,15 +162,10 @@ async def test_double_reconcile_is_idempotent(
     assert await store.has_grant("worker", "w-1", "alice") is True
 
 
-async def _backdate_all(
-    engine: AsyncEngine, kind: str, resource_id: str, *, days: int
-) -> None:
-    sm = async_sessionmaker(engine, expire_on_commit=False)
-    backdated = datetime.now(UTC) - timedelta(days=days)
-    async with sm() as session:
-        await session.execute(
-            update(_Grant)
-            .where(_Grant.kind == kind, _Grant.id == resource_id)
-            .values(granted_at=backdated)
+def _backdate_all(db_path: Path, kind: str, resource_id: str, *, days: int) -> None:
+    backdated = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE acl_grants SET granted_at = ? WHERE kind = ? AND id = ?",
+            (backdated, kind, resource_id),
         )
-        await session.commit()

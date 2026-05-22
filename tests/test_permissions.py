@@ -15,7 +15,7 @@ from lumid_flowmesh_plugin.permissions import LumidPermissionChecker
 
 @pytest.fixture
 async def store(tmp_path: Path) -> AsyncIterator[GrantStore]:
-    async with open_store(tmp_path / "acl.sqlite") as (_engine, s):
+    async with open_store(tmp_path / "acl.sqlite") as s:
         yield s
 
 

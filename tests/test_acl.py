@@ -1,25 +1,18 @@
 """Tests for the SQLite-backed GrantStore."""
 
+import sqlite3
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from lumid_flowmesh_plugin.acl import (
-    GrantStore,
-    _Grant,
-    bootstrap_schema,
-    make_engine,
-    open_store,
-)
+from lumid_flowmesh_plugin.acl import GrantStore, open_store
 
 
 @pytest.fixture
 async def store(tmp_path: Path) -> AsyncIterator[GrantStore]:
-    async with open_store(tmp_path / "acl.sqlite") as (_engine, s):
+    async with open_store(tmp_path / "acl.sqlite") as s:
         yield s
 
 
@@ -90,12 +83,13 @@ async def test_list_ids_includes_resources_shared_with_principal(
 
 
 async def test_reconcile_marks_live_and_drops_stale(tmp_path: Path) -> None:
-    async with open_store(tmp_path / "acl.sqlite") as (engine, store):
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as store:
         await store.grant("worker", "live", "alice")
         await store.grant("worker", "live", "bob")
         await store.grant("worker", "stale", "alice")
-        await _backdate_all(engine, "worker", "live", days=120)
-        await _backdate_all(engine, "worker", "stale", days=120)
+        _backdate_all(db, "worker", "live", days=120)
+        _backdate_all(db, "worker", "stale", days=120)
 
         session_start = datetime.now(UTC)
         touched, deleted = await store.reconcile(
@@ -112,9 +106,10 @@ async def test_reconcile_marks_live_and_drops_stale(tmp_path: Path) -> None:
 async def test_reconcile_empty_batch_wipes_pre_session_rows(
     tmp_path: Path,
 ) -> None:
-    async with open_store(tmp_path / "acl.sqlite") as (engine, store):
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as store:
         await store.grant("workflow", "wf-1", "alice")
-        await _backdate_all(engine, "workflow", "wf-1", days=1)
+        _backdate_all(db, "workflow", "wf-1", days=1)
 
         session_start = datetime.now(UTC)
         touched, deleted = await store.reconcile([], session_start)
@@ -148,9 +143,10 @@ async def test_reconcile_on_empty_store_is_noop(store: GrantStore) -> None:
 
 
 async def test_reconcile_is_idempotent(tmp_path: Path) -> None:
-    async with open_store(tmp_path / "acl.sqlite") as (engine, store):
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as store:
         await store.grant("worker", "w-1", "alice")
-        await _backdate_all(engine, "worker", "w-1", days=120)
+        _backdate_all(db, "worker", "w-1", days=120)
 
         session_start = datetime.now(UTC)
         first = await store.reconcile([("worker", "w-1")], session_start)
@@ -162,78 +158,66 @@ async def test_reconcile_is_idempotent(tmp_path: Path) -> None:
 
 
 async def test_reconcile_rolls_back_on_error(tmp_path: Path) -> None:
-    """If the transaction raises mid-flight, neither the update nor the
-    delete commits."""
-    async with open_store(tmp_path / "acl.sqlite") as (engine, store):
+    """If the DELETE raises after the UPDATE ran, the UPDATE is rolled back
+    too — `granted_at` stays at its pre-reconcile value."""
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as store:
         await store.grant("worker", "w-1", "alice")
-        await _backdate_all(engine, "worker", "w-1", days=120)
+        _backdate_all(db, "worker", "w-1", days=120)
+        original_granted_at = _read_granted_at(db, "worker", "w-1", "alice")
 
-        # Wrap the session so the second statement (delete) raises after
-        # the first (update) ran but before commit.
-        real_sm = store._sm  # type: ignore[attr-defined]
+        real_conn = store._conn
 
-        class _ExplodingSession:
-            def __init__(self, inner: object) -> None:
-                self._inner = inner
-                self._executions = 0
+        class _ExplodingConn:
+            def __init__(self) -> None:
+                self.calls = 0
 
-            async def __aenter__(self) -> "_ExplodingSession":
-                await self._inner.__aenter__()  # type: ignore[attr-defined]
-                return self
-
-            async def __aexit__(self, *args: object) -> None:
-                await self._inner.__aexit__(*args)  # type: ignore[attr-defined]
-
-            def begin(self) -> object:
-                return self._inner.begin()  # type: ignore[attr-defined]
-
-            async def execute(self, stmt: object) -> object:
-                self._executions += 1
-                if self._executions == 2:
+            def execute(self, sql: str, *args: object) -> sqlite3.Cursor:
+                self.calls += 1
+                # Let BEGIN (1) and UPDATE (2) run on the real connection;
+                # raise on DELETE (3) so the except clause issues ROLLBACK
+                # and the UPDATE's bump to `granted_at` is reverted.
+                if self.calls == 3:
                     raise RuntimeError("simulated mid-transaction failure")
-                return await self._inner.execute(stmt)  # type: ignore[attr-defined]
+                return real_conn.execute(sql, *args)
 
-            async def commit(self) -> None:
-                await self._inner.commit()  # type: ignore[attr-defined]
-
-        def _exploding_sm() -> _ExplodingSession:
-            return _ExplodingSession(real_sm())
-
-        store._sm = _exploding_sm  # type: ignore[assignment]
+        store._conn = _ExplodingConn()  # type: ignore[assignment]
         try:
             session_start = datetime.now(UTC)
             with pytest.raises(RuntimeError, match="simulated"):
                 await store.reconcile([("worker", "w-1")], session_start)
         finally:
-            store._sm = real_sm  # type: ignore[assignment]
+            store._conn = real_conn
 
-        # Update was attempted but rollback restored the original state.
         assert await store.has_grant("worker", "w-1", "alice") is True
+        assert _read_granted_at(db, "worker", "w-1", "alice") == original_granted_at
 
 
-async def test_bootstrap_is_idempotent(tmp_path: Path) -> None:
+async def test_open_store_is_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "acl.sqlite"
-    engine = make_engine(db)
-    try:
-        await bootstrap_schema(engine)
-        await bootstrap_schema(engine)  # second call must not raise
-    finally:
-        await engine.dispose()
+    async with open_store(db) as _store:
+        pass
+    async with open_store(db) as _store:  # second open must not raise
+        pass
 
 
-async def _backdate_all(
-    engine: AsyncEngine,
-    kind: str,
-    resource_id: str,
-    *,
-    days: int,
-) -> None:
-    sm = async_sessionmaker(engine, expire_on_commit=False)
-    backdated = datetime.now(UTC) - timedelta(days=days)
-    async with sm() as session:
-        await session.execute(
-            update(_Grant)
-            .where(_Grant.kind == kind, _Grant.id == resource_id)
-            .values(granted_at=backdated)
+def _backdate_all(db_path: Path, kind: str, resource_id: str, *, days: int) -> None:
+    backdated = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE acl_grants SET granted_at = ? WHERE kind = ? AND id = ?",
+            (backdated, kind, resource_id),
         )
-        await session.commit()
+
+
+def _read_granted_at(
+    db_path: Path, kind: str, resource_id: str, principal_id: str
+) -> str:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT granted_at FROM acl_grants "
+            "WHERE kind = ? AND id = ? AND principal_id = ?",
+            (kind, resource_id, principal_id),
+        ).fetchone()
+    assert row is not None
+    return str(row[0])

@@ -6,129 +6,120 @@ one grant: principal P is permitted to act on (kind, id). Rows are written by
 ``LumidPermissionChecker`` on every authz decision. Stale rows are cleared
 by the host's startup reconcile sweep, which touches every live resource
 and then drops anything left untouched.
+
+Implementation uses the stdlib ``sqlite3`` module (no SQLAlchemy / aiosqlite
+dependency). A single ``Connection`` is opened in WAL + autocommit and shared
+across all ops; an ``asyncio.Lock`` serialises access and each query runs in
+``asyncio.to_thread`` so the event loop never blocks.
 """
 
+import asyncio
+import sqlite3
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import Index, delete, exists, select, tuple_, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS acl_grants (
+    kind TEXT NOT NULL,
+    id TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    PRIMARY KEY (kind, id, principal_id)
+);
+CREATE INDEX IF NOT EXISTS ix_acl_grants_principal_kind
+    ON acl_grants (principal_id, kind);
+"""
 
 
-class _Base(DeclarativeBase):
-    pass
-
-
-class _Grant(_Base):
-    __tablename__ = "acl_grants"
-
-    kind: Mapped[str] = mapped_column(primary_key=True)
-    id: Mapped[str] = mapped_column(primary_key=True)
-    principal_id: Mapped[str] = mapped_column(primary_key=True)
-    granted_at: Mapped[datetime] = mapped_column()
-
-    __table_args__ = (
-        Index("ix_acl_grants_principal_kind", "principal_id", "kind"),
+def _connect(db_path: str | Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(
+        str(db_path),
+        check_same_thread=False,
+        isolation_level=None,
     )
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript(_SCHEMA)
+    return conn
 
 
-def make_engine(db_path: str | Path) -> AsyncEngine:
-    """Create an async SQLAlchemy engine for a SQLite file at ``db_path``.
-
-    The parent directory must exist.
-    """
-    return create_async_engine(f"sqlite+aiosqlite:///{db_path}", future=True)
-
-
-async def bootstrap_schema(engine: AsyncEngine) -> None:
-    """Idempotently create the ``acl_grants`` table and its indexes."""
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.create_all)
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 class GrantStore:
-    """Async CRUD wrapper around the ``acl_grants`` table."""
+    """Async CRUD wrapper around the ``acl_grants`` table.
 
-    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
-        self._sm = sessionmaker
+    All access goes through ``asyncio.to_thread`` and is serialised by an
+    ``asyncio.Lock`` since a single ``sqlite3.Connection`` is not thread-safe.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._lock = asyncio.Lock()
 
     async def grant(self, kind: str, resource_id: str, principal_id: str) -> None:
         """Upsert a grant for ``(kind, resource_id, principal_id)`` with ``now``.
 
         Re-granting refreshes ``granted_at``.
         """
-        now = datetime.now(UTC)
-        stmt = sqlite_insert(_Grant).values(
-            kind=kind,
-            id=resource_id,
-            principal_id=principal_id,
-            granted_at=now,
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[_Grant.kind, _Grant.id, _Grant.principal_id],
-            set_={"granted_at": stmt.excluded.granted_at},
-        )
-        async with self._sm() as session:
-            await session.execute(stmt)
-            await session.commit()
+        params = (kind, resource_id, principal_id, _now_iso())
+        async with self._lock:
+            await asyncio.to_thread(
+                self._conn.execute,
+                "INSERT INTO acl_grants(kind, id, principal_id, granted_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(kind, id, principal_id) "
+                "DO UPDATE SET granted_at = excluded.granted_at",
+                params,
+            )
 
     async def revoke(self, kind: str, resource_id: str, principal_id: str) -> bool:
         """Remove a single grant. Returns True if a row was removed."""
-        stmt = delete(_Grant).where(
-            _Grant.kind == kind,
-            _Grant.id == resource_id,
-            _Grant.principal_id == principal_id,
-        )
-        async with self._sm() as session:
-            result = await session.execute(stmt)
-            await session.commit()
-            rowcount: int = result.rowcount  # type: ignore[attr-defined]
-            return rowcount > 0
+        async with self._lock:
+            cur = await asyncio.to_thread(
+                self._conn.execute,
+                "DELETE FROM acl_grants WHERE kind=? AND id=? AND principal_id=?",
+                (kind, resource_id, principal_id),
+            )
+            return cur.rowcount > 0
 
     async def delete_resource(self, kind: str, resource_id: str) -> int:
         """Remove every grant for ``(kind, resource_id)``. Returns rows removed."""
-        stmt = delete(_Grant).where(
-            _Grant.kind == kind, _Grant.id == resource_id
-        )
-        async with self._sm() as session:
-            result = await session.execute(stmt)
-            await session.commit()
-            rowcount: int = result.rowcount  # type: ignore[attr-defined]
-            return rowcount
+        async with self._lock:
+            cur = await asyncio.to_thread(
+                self._conn.execute,
+                "DELETE FROM acl_grants WHERE kind=? AND id=?",
+                (kind, resource_id),
+            )
+            return cur.rowcount
 
     async def has_grant(
         self, kind: str, resource_id: str, principal_id: str
     ) -> bool:
         """Return True if ``principal_id`` has a grant on ``(kind, resource_id)``."""
-        stmt = select(
-            exists().where(
-                _Grant.kind == kind,
-                _Grant.id == resource_id,
-                _Grant.principal_id == principal_id,
+        async with self._lock:
+            row = await asyncio.to_thread(
+                self._fetchone,
+                "SELECT 1 FROM acl_grants "
+                "WHERE kind=? AND id=? AND principal_id=? LIMIT 1",
+                (kind, resource_id, principal_id),
             )
-        )
-        async with self._sm() as session:
-            return bool((await session.execute(stmt)).scalar())
+        return row is not None
 
     async def list_ids_for_principal(
         self, principal_id: str, kind: str
     ) -> frozenset[str]:
         """Return all ids of ``kind`` that ``principal_id`` has a grant on."""
-        stmt = select(_Grant.id).where(
-            _Grant.principal_id == principal_id, _Grant.kind == kind
-        )
-        async with self._sm() as session:
-            rows = (await session.execute(stmt)).scalars().all()
-        return frozenset(rows)
+        async with self._lock:
+            rows = await asyncio.to_thread(
+                self._fetchall,
+                "SELECT id FROM acl_grants WHERE principal_id=? AND kind=?",
+                (principal_id, kind),
+            )
+        return frozenset(r[0] for r in rows)
 
     async def reconcile(
         self,
@@ -148,38 +139,67 @@ class GrantStore:
         registrations) survive the sweep.
         """
         materialized = list(pairs)
-        now = datetime.now(UTC)
-        async with self._sm() as session, session.begin():
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._reconcile_sync, materialized, session_start
+            )
+
+    def _reconcile_sync(
+        self,
+        pairs: list[tuple[str, str]],
+        session_start: datetime,
+    ) -> tuple[int, int]:
+        conn = self._conn
+        cutoff = session_start.isoformat()
+        now = _now_iso()
+        conn.execute("BEGIN")
+        try:
             touched = 0
-            if materialized:
-                touch_stmt = (
-                    update(_Grant)
-                    .where(tuple_(_Grant.kind, _Grant.id).in_(materialized))
-                    .values(granted_at=now)
+            if pairs:
+                values_clause = ",".join("(?, ?)" for _ in pairs)
+                flat: list[str] = [now]
+                for kind, rid in pairs:
+                    flat.extend((kind, rid))
+                cur = conn.execute(
+                    f"UPDATE acl_grants SET granted_at = ? "
+                    f"WHERE (kind, id) IN (VALUES {values_clause})",
+                    flat,
                 )
-                touch_result = await session.execute(touch_stmt)
-                touched = touch_result.rowcount  # type: ignore[attr-defined]
-            delete_stmt = delete(_Grant).where(_Grant.granted_at < session_start)
-            delete_result = await session.execute(delete_stmt)
-            deleted: int = delete_result.rowcount  # type: ignore[attr-defined]
+                touched = cur.rowcount
+            cur = conn.execute(
+                "DELETE FROM acl_grants WHERE granted_at < ?", (cutoff,)
+            )
+            deleted = cur.rowcount
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
         return touched, deleted
+
+    def _fetchone(
+        self, sql: str, params: tuple[object, ...]
+    ) -> tuple[Any, ...] | None:
+        row: tuple[Any, ...] | None = self._conn.execute(sql, params).fetchone()
+        return row
+
+    def _fetchall(
+        self, sql: str, params: tuple[object, ...]
+    ) -> list[tuple[Any, ...]]:
+        rows: list[tuple[Any, ...]] = self._conn.execute(sql, params).fetchall()
+        return rows
 
 
 @asynccontextmanager
-async def open_store(db_path: str | Path) -> AsyncIterator[tuple[AsyncEngine, GrantStore]]:
-    """Open an engine, bootstrap the schema, yield ``(engine, store)``; dispose on exit."""
-    engine = make_engine(db_path)
+async def open_store(db_path: str | Path) -> AsyncIterator[GrantStore]:
+    """Open a connection, bootstrap the schema, yield a ``GrantStore``; close on exit."""
+    conn = await asyncio.to_thread(_connect, db_path)
     try:
-        await bootstrap_schema(engine)
-        sm = async_sessionmaker(engine, expire_on_commit=False)
-        yield engine, GrantStore(sm)
+        yield GrantStore(conn)
     finally:
-        await engine.dispose()
+        await asyncio.to_thread(conn.close)
 
 
 __all__ = [
     "GrantStore",
-    "bootstrap_schema",
-    "make_engine",
     "open_store",
 ]
