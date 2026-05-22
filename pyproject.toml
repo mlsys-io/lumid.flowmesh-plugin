@@ -56,7 +56,3 @@ strict = true
 module = "flowmesh_hook"
 ignore_missing_imports = true
 
-[tool.uv.sources]
-# TODO(lumid-hooks-0.2.0): drop this override once lumid-hooks 0.2.0 ships
-# to PyPI.
-lumid-hooks = { path = "../lumid.hooks", editable = true }
