@@ -32,7 +32,6 @@ from .acl import GrantStore
 
 _ADMIN_SCOPES: frozenset[str] = frozenset({"*", "flowmesh:*", "flowmesh:admin"})
 
-# Maps (kind, action) to the scope that authorizes that kind-level operation.
 # Anything not in this map is admin-only at kind level.
 _KIND_LEVEL_SCOPES: dict[tuple[str, str], str] = {
     (ResourceKind.WORKFLOW.value, ResourceAction.READ.value): "flowmesh:workflows:read",

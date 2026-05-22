@@ -7,12 +7,9 @@ one grant: principal P is permitted to act on (kind, id). Rows are written by
 by the host's startup reconcile sweep, which touches every live resource
 and then drops anything left untouched.
 
-Implementation uses the stdlib ``sqlite3`` module (no SQLAlchemy / aiosqlite
-dependency). A single ``Connection`` is opened in autocommit and shared
-across all ops; an ``asyncio.Lock`` serialises access and each query runs in
-``asyncio.to_thread`` so the event loop never blocks. The lock single-threads
-all DB I/O at the application layer, so SQLite's WAL concurrency isn't worth
-the operational cost of the ``-wal`` / ``-shm`` sidecar files.
+Built on the stdlib ``sqlite3`` module. A single ``Connection`` opened in
+autocommit is shared across all ops; an ``asyncio.Lock`` serialises access
+and each query runs in ``asyncio.to_thread`` so the event loop never blocks.
 """
 
 import asyncio
@@ -129,15 +126,13 @@ class GrantStore:
     ) -> tuple[int, int]:
         """Replace the store's live set with the listed ``(kind, id)`` pairs.
 
-        Single transaction: bump ``granted_at`` to ``now`` for every grant
-        matching a pair, then delete every grant whose ``granted_at`` is
-        still older than ``session_start``. On failure the transaction
-        rolls back and the store is unchanged. Returns ``(touched, deleted)``.
+        Single atomic transaction: bumps ``granted_at`` to ``now`` for every
+        grant matching a pair, then deletes every grant older than
+        ``session_start``. Returns ``(touched, deleted)``.
 
-        ``session_start`` is the cutoff used to recognise stale rows.
-        Callers typically capture it at plugin-load time so grants written
-        between load and the host's reconcile call (e.g. by other startup
-        registrations) survive the sweep.
+        ``session_start`` is the cutoff used to recognise stale rows. Callers
+        capture it at plugin-load time so grants written between load and the
+        host's reconcile call survive the sweep.
         """
         materialized = list(pairs)
         async with self._lock:

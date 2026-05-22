@@ -6,14 +6,11 @@ each hard-delete. We write a grant on register and wipe every grant on the
 resource on deregister, so the PermissionChecker can read the current set.
 
 At startup FlowMesh also runs a reconcile sweep — ``reconcile`` is called
-once with every live resource. The plugin runs a single transaction that
-refreshes grants on listed resources and drops anything else; on failure
-the transaction rolls back so partial sweeps never wipe live grants.
+once with every live resource. The plugin runs a single atomic transaction
+that refreshes grants on listed resources and drops anything else.
 
-Kind-level refs (``resource.id is None``) on register/deregister are
-no-ops with a logged warning — they shouldn't reach a registrar in
-practice, but we don't want to crash on one if the server ever does
-fire one.
+Kind-level refs (``resource.id is None``) on register/deregister are no-ops
+with a logged warning.
 """
 
 import logging
