@@ -8,9 +8,11 @@ by the host's startup reconcile sweep, which touches every live resource
 and then drops anything left untouched.
 
 Implementation uses the stdlib ``sqlite3`` module (no SQLAlchemy / aiosqlite
-dependency). A single ``Connection`` is opened in WAL + autocommit and shared
+dependency). A single ``Connection`` is opened in autocommit and shared
 across all ops; an ``asyncio.Lock`` serialises access and each query runs in
-``asyncio.to_thread`` so the event loop never blocks.
+``asyncio.to_thread`` so the event loop never blocks. The lock single-threads
+all DB I/O at the application layer, so SQLite's WAL concurrency isn't worth
+the operational cost of the ``-wal`` / ``-shm`` sidecar files.
 """
 
 import asyncio
@@ -40,7 +42,6 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
         check_same_thread=False,
         isolation_level=None,
     )
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_SCHEMA)
     return conn
 
