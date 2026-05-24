@@ -258,7 +258,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "flowmesh-hook", git = "https://github.com/mlsys-io/FlowMesh.git?subdirectory=hook&branch=main" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "lumid-hooks", git = "https://github.com/mlsys-io/lumid.hooks.git?branch=main" },
+    { name = "lumid-hooks", git = "https://github.com/mlsys-io/lumid.hooks.git?tag=v0.1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -271,7 +271,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "lumid-hooks"
 version = "0.1.0"
-source = { git = "https://github.com/mlsys-io/lumid.hooks.git?branch=main#cc91d2c9a6a463a3966923b6d72c8d571736ac41" }
+source = { git = "https://github.com/mlsys-io/lumid.hooks.git?tag=v0.1.0#cc91d2c9a6a463a3966923b6d72c8d571736ac41" }
 dependencies = [
     { name = "pydantic" },
 ]
