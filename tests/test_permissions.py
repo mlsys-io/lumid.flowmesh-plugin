@@ -64,6 +64,7 @@ async def test_admin_bypass_all_actions(
         (WF, WRITE, "flowmesh:workflows:write"),
         (TASK, READ, "flowmesh:tasks:read"),
         (RESULT, READ, "flowmesh:results:read"),
+        (RESULT, WRITE, "flowmesh:results:write"),
         (NODE, READ, "flowmesh:nodes:read"),
         (NODE, WRITE, "flowmesh:nodes:write"),
         (WORKER, READ, "flowmesh:workers:read"),
@@ -78,12 +79,27 @@ async def test_kind_level_scope_grants_access(
     await checker.require(_principal("alice", scope), ResourceRef(kind=kind), action, logger)
 
 
+@pytest.mark.parametrize(
+    "kind,action",
+    [
+        (WF, READ),
+        (WF, WRITE),
+        (TASK, READ),
+        (RESULT, READ),
+        (RESULT, WRITE),
+        (NODE, READ),
+        (NODE, WRITE),
+        (WORKER, READ),
+        (WORKER, WRITE),
+        (SYSTEM, READ),
+    ],
+)
 async def test_kind_level_denies_without_scope(
-    store: GrantStore, logger: logging.Logger
+    store: GrantStore, logger: logging.Logger, kind: str, action: str
 ) -> None:
     checker = LumidPermissionChecker(store)
     with pytest.raises(HTTPException) as exc:
-        await checker.require(_principal("alice"), ResourceRef(kind=WF), WRITE, logger)
+        await checker.require(_principal("alice"), ResourceRef(kind=kind), action, logger)
     assert exc.value.status_code == 403
 
 

@@ -26,6 +26,7 @@ lum.id PATs mint against this list; the `PermissionChecker` reads it:
 | `flowmesh:workflows:write` | Create workflows. |
 | `flowmesh:nodes:write` | Register nodes. |
 | `flowmesh:workers:write` | Register workers. |
+| `flowmesh:results:write` | Upload task results and artifacts. |
 
 Concrete-id access requires a grant on the resource.
 

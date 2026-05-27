@@ -12,6 +12,7 @@ Authorization policy:
   | WORKFLOW, WRITE       | `flowmesh:workflows:write`     |
   | TASK, READ            | `flowmesh:tasks:read`          |
   | RESULT, READ          | `flowmesh:results:read`        |
+  | RESULT, WRITE         | `flowmesh:results:write`       |
   | NODE, READ            | `flowmesh:nodes:read`          |
   | NODE, WRITE           | `flowmesh:nodes:write`         |
   | WORKER, READ          | `flowmesh:workers:read`        |
@@ -45,6 +46,7 @@ _KIND_LEVEL_SCOPES: dict[tuple[str, str], str] = {
     (ResourceKind.WORKFLOW.value, ResourceAction.WRITE.value): "flowmesh:workflows:write",
     (ResourceKind.TASK.value, ResourceAction.READ.value): "flowmesh:tasks:read",
     (ResourceKind.RESULT.value, ResourceAction.READ.value): "flowmesh:results:read",
+    (ResourceKind.RESULT.value, ResourceAction.WRITE.value): "flowmesh:results:write",
     (ResourceKind.NODE.value, ResourceAction.READ.value): "flowmesh:nodes:read",
     (ResourceKind.NODE.value, ResourceAction.WRITE.value): "flowmesh:nodes:write",
     (ResourceKind.WORKER.value, ResourceAction.READ.value): "flowmesh:workers:read",
