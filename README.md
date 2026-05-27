@@ -13,7 +13,7 @@ FlowMesh plugin that bridges lum.id identity, permission checking, Runmesh billi
 | `UsageSink` | Mirrors usage rows to `POST {RUNMESH_BILLING_BASE_URL}/billing/flowmesh-entry` with `X-Bridge-Secret`. Forwards each row whose `principal_id` is in the email cache; rows without a cached email (anonymous or pre-restart principals) are skipped. One POST per row; failures logged and dropped. |
 | `SupplierResolver` | Returns `worker.namespace` as the supplier id at dispatch time. |
 
-`install()` is an `@asynccontextmanager`: it opens the ACL SQLite connection, bootstraps the schema, prunes stale rows, yields the bindings, and closes the connection on FastAPI shutdown.
+`install()` is an `@asynccontextmanager`: it opens the ACL SQLite connection, bootstraps the schema, yields the bindings, and closes the connection on FastAPI shutdown. Stale grants are dropped by the host's startup `reconcile` sweep through `ResourceRegistrar`.
 
 ## Scope vocabulary
 
