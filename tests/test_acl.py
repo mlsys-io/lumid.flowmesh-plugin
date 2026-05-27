@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lumid_flowmesh_plugin.acl import GrantStore, open_store
+from lumid_flowmesh_plugin.acl import GrantLevel, GrantStore, open_store
 
 
 @pytest.fixture
@@ -27,6 +27,30 @@ async def test_grant_is_idempotent_per_principal(store: GrantStore) -> None:
     await store.grant("task", "t-1", "alice")
     await store.grant("task", "t-1", "alice")
     assert await store.list_ids_for_principal("alice", "task") == frozenset({"t-1"})
+
+
+async def test_grant_defaults_to_write_level(store: GrantStore) -> None:
+    await store.grant("workflow", "wf-1", "alice")
+    assert await store.get_level("workflow", "wf-1", "alice") == GrantLevel.WRITE
+    assert await store.get_level("workflow", "wf-1", "bob") is None
+
+
+async def test_grant_stores_and_overwrites_level(store: GrantStore) -> None:
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.READ)
+    assert await store.get_level("workflow", "wf-1", "alice") == GrantLevel.READ
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+    assert await store.get_level("workflow", "wf-1", "alice") == GrantLevel.WRITE
+
+
+async def test_list_ids_min_level_filters_by_level(store: GrantStore) -> None:
+    await store.grant("workflow", "wf-write", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-read", "alice", GrantLevel.READ)
+    assert await store.list_ids_for_principal("alice", "workflow") == frozenset(
+        {"wf-write", "wf-read"}
+    )
+    assert await store.list_ids_for_principal(
+        "alice", "workflow", GrantLevel.WRITE
+    ) == frozenset({"wf-write"})
 
 
 async def test_multiple_principals_share_a_resource(store: GrantStore) -> None:
