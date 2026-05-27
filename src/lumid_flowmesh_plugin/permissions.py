@@ -18,8 +18,15 @@ Authorization policy:
   | WORKER, WRITE         | `flowmesh:workers:write`       |
   | SYSTEM, READ          | `flowmesh:system:read`         |
 
-* **Concrete-id checks** allow any principal with a grant on the resource.
-* **accessible_ids** returns the principal's granted ids, or `None` for admins.
+  A valid `(kind, action)` absent from the table is admin-only; an unrecognised
+  kind or action is unsupported. Both deny.
+* **Concrete-id checks** require a grant whose level covers the action: READ
+  needs `GrantLevel.READ`, mutating actions (WRITE, CANCEL) need
+  `GrantLevel.WRITE`. The `admin` action is never grant-satisfiable. RESULT has
+  no grants of its own — ownership is inferred from the owning task, so a
+  concrete RESULT check resolves against the TASK grant of the same id.
+* **accessible_ids** returns the ids the principal can act on at the requested
+  action's level, or `None` for admins.
 """
 
 import logging
@@ -28,7 +35,7 @@ from fastapi import HTTPException, status
 from flowmesh_hook import ResourceAction, ResourceKind
 from lumid_hooks import PrincipalContext, ResourceRef
 
-from .acl import GrantStore
+from .acl import GrantLevel, GrantStore
 
 _ADMIN_SCOPES: frozenset[str] = frozenset({"*", "flowmesh:*", "flowmesh:admin"})
 
@@ -45,9 +52,29 @@ _KIND_LEVEL_SCOPES: dict[tuple[str, str], str] = {
     (ResourceKind.SYSTEM.value, ResourceAction.READ.value): "flowmesh:system:read",
 }
 
+# Grant level a concrete-id action needs. Actions absent here (e.g. `admin`)
+# are never satisfiable by a grant — only the admin-scope bypass clears them.
+_REQUIRED_LEVEL: dict[str, GrantLevel] = {
+    ResourceAction.READ.value: GrantLevel.READ,
+    ResourceAction.WRITE.value: GrantLevel.WRITE,
+    ResourceAction.CANCEL.value: GrantLevel.WRITE,
+}
+
+# Kinds whose ownership lives under a different kind's grants.
+_OWNERSHIP_KIND: dict[str, str] = {
+    ResourceKind.RESULT.value: ResourceKind.TASK.value,
+}
+
+_VALID_KINDS: frozenset[str] = frozenset(k.value for k in ResourceKind)
+_VALID_ACTIONS: frozenset[str] = frozenset(a.value for a in ResourceAction)
+
 
 def _is_admin(principal: PrincipalContext) -> bool:
     return any(scope in _ADMIN_SCOPES for scope in principal.scopes)
+
+
+def _recognised(kind: str, action: str) -> bool:
+    return kind in _VALID_KINDS and action in _VALID_ACTIONS
 
 
 class LumidPermissionChecker:
@@ -67,17 +94,35 @@ class LumidPermissionChecker:
             return
 
         if resource.id is None:
-            required = _KIND_LEVEL_SCOPES.get((resource.kind, action))
-            if required is not None and required in principal.scopes:
+            required_scope = _KIND_LEVEL_SCOPES.get((resource.kind, action))
+            if required_scope is not None and required_scope in principal.scopes:
                 return
+            if required_scope is not None:
+                detail = (
+                    f"kind-level {action} on {resource.kind} requires {required_scope!r}"
+                )
+            elif _recognised(resource.kind, action):
+                detail = f"kind-level {action} on {resource.kind} is admin-only"
+            else:
+                detail = f"unsupported kind-level {action} on {resource.kind}"
+            raise self._deny(logger, detail)
+
+        if not _recognised(resource.kind, action):
             raise self._deny(
-                logger,
-                f"kind-level {action} on {resource.kind} requires "
-                f"{required!r}" if required else
-                f"kind-level {action} on {resource.kind} is admin-only",
+                logger, f"unsupported {action} on {resource.kind}/{resource.id}"
             )
 
-        if await self._store.has_grant(resource.kind, resource.id, principal.principal_id):
+        required_level = _REQUIRED_LEVEL.get(action)
+        if required_level is None:
+            raise self._deny(
+                logger, f"{action} on {resource.kind}/{resource.id} is admin-only"
+            )
+
+        owner_kind = _OWNERSHIP_KIND.get(resource.kind, resource.kind)
+        level = await self._store.get_level(
+            owner_kind, resource.id, principal.principal_id
+        )
+        if level is not None and level >= required_level:
             return
         raise self._deny(
             logger,
@@ -94,7 +139,13 @@ class LumidPermissionChecker:
     ) -> frozenset[str] | None:
         if _is_admin(principal):
             return None
-        return await self._store.list_ids_for_principal(principal.principal_id, kind)
+        required_level = _REQUIRED_LEVEL.get(action)
+        if required_level is None:
+            return frozenset()
+        owner_kind = _OWNERSHIP_KIND.get(kind, kind)
+        return await self._store.list_ids_for_principal(
+            principal.principal_id, owner_kind, required_level
+        )
 
     def _deny(self, logger: logging.Logger, detail: str) -> HTTPException:
         logger.warning("%s: %s", self.name, detail)

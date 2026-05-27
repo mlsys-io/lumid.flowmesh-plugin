@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from flowmesh_hook import ResourceAction, ResourceKind
 from lumid_hooks import PrincipalContext, ResourceRef
 
-from lumid_flowmesh_plugin.acl import GrantStore, open_store
+from lumid_flowmesh_plugin.acl import GrantLevel, GrantStore, open_store
 from lumid_flowmesh_plugin.permissions import LumidPermissionChecker
 
 
@@ -38,6 +38,7 @@ RESULT = ResourceKind.RESULT.value
 WRITE = ResourceAction.WRITE.value
 READ = ResourceAction.READ.value
 CANCEL = ResourceAction.CANCEL.value
+ADMIN = ResourceAction.ADMIN.value
 
 
 @pytest.mark.parametrize("admin_scope", ["*", "flowmesh:*", "flowmesh:admin"])
@@ -159,14 +160,74 @@ async def test_concrete_id_non_grantee_with_read_scope_denied(
     assert exc.value.status_code == 403
 
 
-async def test_result_kind_grantee_only(
+async def test_concrete_id_read_grantee_cannot_mutate(
     store: GrantStore, logger: logging.Logger
 ) -> None:
     checker = LumidPermissionChecker(store)
-    await store.grant(RESULT, "r-1", "alice")
-    await checker.require(_principal("alice"), ResourceRef(kind=RESULT, id="r-1"), READ, logger)
+    await store.grant(WF, "wf-1", "alice", GrantLevel.READ)
+    await checker.require(
+        _principal("alice"), ResourceRef(kind=WF, id="wf-1"), READ, logger
+    )
+    for action in (WRITE, CANCEL):
+        with pytest.raises(HTTPException) as exc:
+            await checker.require(
+                _principal("alice"), ResourceRef(kind=WF, id="wf-1"), action, logger
+            )
+        assert exc.value.status_code == 403
+
+
+async def test_concrete_id_admin_action_denied_for_grantee(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    await store.grant(WF, "wf-1", "alice")  # WRITE-level owner
+    with pytest.raises(HTTPException) as exc:
+        await checker.require(
+            _principal("alice"), ResourceRef(kind=WF, id="wf-1"), ADMIN, logger
+        )
+    assert exc.value.status_code == 403
+    assert "admin-only" in exc.value.detail
+
+
+async def test_result_ownership_resolves_against_task_grant(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    # RESULT has no grants of its own; ownership is the owning task's grant
+    # (result id == task id). FlowMesh never registers RESULT directly.
+    checker = LumidPermissionChecker(store)
+    await store.grant(TASK, "t-1", "alice")
+    await checker.require(
+        _principal("alice"), ResourceRef(kind=RESULT, id="t-1"), READ, logger
+    )
     with pytest.raises(HTTPException):
-        await checker.require(_principal("bob"), ResourceRef(kind=RESULT, id="r-1"), READ, logger)
+        await checker.require(
+            _principal("bob"), ResourceRef(kind=RESULT, id="t-1"), READ, logger
+        )
+
+
+async def test_kind_level_unsupported_pair_message(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    with pytest.raises(HTTPException) as exc:
+        await checker.require(
+            _principal("alice"), ResourceRef(kind="banana"), READ, logger
+        )
+    assert exc.value.status_code == 403
+    assert "unsupported" in exc.value.detail
+
+
+async def test_kind_level_admin_only_pair_message(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    # SYSTEM/WRITE is a recognised pair with no kind-level scope -> admin-only.
+    checker = LumidPermissionChecker(store)
+    with pytest.raises(HTTPException) as exc:
+        await checker.require(
+            _principal("alice"), ResourceRef(kind=SYSTEM), WRITE, logger
+        )
+    assert exc.value.status_code == 403
+    assert "admin-only" in exc.value.detail
 
 
 async def test_accessible_ids_returns_granted_set(
@@ -215,3 +276,25 @@ async def test_accessible_ids_with_read_scope_returns_granted(
         _principal("alice", "flowmesh:workflows:read"), WF, READ, logger
     )
     assert result == frozenset({"wf-1"})
+
+
+async def test_accessible_ids_write_action_excludes_read_grants(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    await store.grant(WF, "wf-write", "alice", GrantLevel.WRITE)
+    await store.grant(WF, "wf-read", "alice", GrantLevel.READ)
+    assert await checker.accessible_ids(_principal("alice"), WF, READ, logger) == frozenset(
+        {"wf-write", "wf-read"}
+    )
+    assert await checker.accessible_ids(_principal("alice"), WF, WRITE, logger) == frozenset(
+        {"wf-write"}
+    )
+
+
+async def test_accessible_ids_admin_action_returns_empty(
+    store: GrantStore, logger: logging.Logger
+) -> None:
+    checker = LumidPermissionChecker(store)
+    await store.grant(WF, "wf-1", "alice")
+    assert await checker.accessible_ids(_principal("alice"), WF, ADMIN, logger) == frozenset()
