@@ -97,12 +97,10 @@ class LumidPermissionChecker:
 
         if resource.id is None:
             required_scope = _KIND_LEVEL_SCOPES.get((resource.kind, action))
-            if required_scope is not None and required_scope in principal.scopes:
-                return
             if required_scope is not None:
-                detail = (
-                    f"kind-level {action} on {resource.kind} requires {required_scope!r}"
-                )
+                if required_scope in principal.scopes:
+                    return
+                detail = f"kind-level {action} on {resource.kind} requires {required_scope!r}"
             elif _recognised(resource.kind, action):
                 detail = f"kind-level {action} on {resource.kind} is admin-only"
             else:
@@ -143,6 +141,7 @@ class LumidPermissionChecker:
             return None
         required_level = _REQUIRED_LEVEL.get(action)
         if required_level is None:
+            # No grants can satisfy this action, so non-admins have no access.
             return frozenset()
         owner_kind = _OWNERSHIP_KIND.get(kind, kind)
         return await self._store.list_ids_for_principal(
