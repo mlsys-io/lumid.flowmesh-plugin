@@ -12,14 +12,12 @@ from datetime import UTC, datetime
 
 from flowmesh_hook import BaseBindings
 
-from ._cache import TTLCache
 from .acl import open_store
 from .config import load_settings
 from .identity import (
-    _EMAIL_CAPACITY,
-    _EMAIL_TTL_SEC,
     IntrospectedToken,
     LumidIdentityProvider,
+    build_email_cache,
 )
 from .permissions import LumidPermissionChecker
 from .registrar import LumidResourceRegistrar
@@ -31,7 +29,7 @@ from .usage import RunmeshUsageSink
 @asynccontextmanager
 async def install() -> AsyncIterator[BaseBindings]:
     settings = load_settings()
-    email_cache: TTLCache[str] = TTLCache(ttl_sec=_EMAIL_TTL_SEC, capacity=_EMAIL_CAPACITY)
+    email_cache = build_email_cache()
 
     async with open_store(settings.lumid_acl_db_path) as store:
         session_start = datetime.now(UTC)

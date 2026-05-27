@@ -17,6 +17,11 @@ _EMAIL_TTL_SEC = 24 * 3600
 _EMAIL_CAPACITY = 10_000
 
 
+def build_email_cache() -> TTLCache[str]:
+    """Construct the `principal_id -> email` cache shared by identity and usage."""
+    return TTLCache(ttl_sec=_EMAIL_TTL_SEC, capacity=_EMAIL_CAPACITY)
+
+
 class IntrospectedToken(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
