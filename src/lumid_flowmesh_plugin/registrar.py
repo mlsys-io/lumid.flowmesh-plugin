@@ -19,7 +19,7 @@ from datetime import datetime
 
 from lumid_hooks import PrincipalContext, ResourceRef
 
-from .acl import GrantStore
+from .acl import GrantLevel, GrantStore
 
 
 class LumidResourceRegistrar:
@@ -43,7 +43,9 @@ class LumidResourceRegistrar:
                 principal.principal_id,
             )
             return
-        await self._store.grant(resource.kind, resource.id, principal.principal_id)
+        await self._store.grant(
+            resource.kind, resource.id, principal.principal_id, GrantLevel.WRITE
+        )
         logger.debug(
             "%s: grant %s/%s -> %s",
             self.name,

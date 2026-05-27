@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from lumid_hooks import PrincipalContext, ResourceRef
 
-from lumid_flowmesh_plugin.acl import GrantStore, open_store
+from lumid_flowmesh_plugin.acl import GrantLevel, GrantStore, open_store
 from lumid_flowmesh_plugin.registrar import LumidResourceRegistrar
 
 
@@ -54,7 +54,7 @@ async def test_deregister_removes_all_grants(
     await reg.register(
         _principal("alice"), ResourceRef(kind="task", id="t-1"), logger
     )
-    await store.grant("task", "t-1", "bob")
+    await store.grant("task", "t-1", "bob", GrantLevel.WRITE)
     await reg.deregister(
         _principal("alice"), ResourceRef(kind="task", id="t-1"), logger
     )
@@ -71,7 +71,7 @@ async def test_kind_level_register_is_noop(
             _principal("alice"), ResourceRef(kind="workflow"), logger
         )
     assert "kind-level register" in caplog.text
-    assert await store.list_ids_for_principal("alice", "workflow") == frozenset()
+    assert await store.list_ids_for_principal("alice", "workflow", GrantLevel.READ) == frozenset()
 
 
 async def test_kind_level_deregister_is_noop(
@@ -94,7 +94,9 @@ async def test_re_register_keeps_principal_grant(
         _principal("alice"), ResourceRef(kind="worker", id="w-1"), logger
     )
     assert await store.has_grant("worker", "w-1", "alice") is True
-    assert await store.list_ids_for_principal("alice", "worker") == frozenset({"w-1"})
+    assert await store.list_ids_for_principal(
+        "alice", "worker", GrantLevel.READ
+    ) == frozenset({"w-1"})
 
 
 async def test_reconcile_keeps_long_running_grants_alive(
@@ -103,8 +105,8 @@ async def test_reconcile_keeps_long_running_grants_alive(
     store, db = store_db
     reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
-    await store.grant("worker", "w-1", "alice")
-    await store.grant("worker", "w-1", "bob")
+    await store.grant("worker", "w-1", "alice", GrantLevel.WRITE)
+    await store.grant("worker", "w-1", "bob", GrantLevel.WRITE)
     _backdate_all(db, "worker", "w-1", days=120)
 
     await reg.reconcile([ResourceRef(kind="worker", id="w-1")], logger)
@@ -119,8 +121,8 @@ async def test_reconcile_drops_resources_not_in_batch(
     store, db = store_db
     reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
-    await store.grant("workflow", "live", "alice")
-    await store.grant("workflow", "forgotten", "alice")
+    await store.grant("workflow", "live", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "forgotten", "alice", GrantLevel.WRITE)
     _backdate_all(db, "workflow", "live", days=120)
     _backdate_all(db, "workflow", "forgotten", days=120)
 
@@ -152,7 +154,7 @@ async def test_double_reconcile_is_idempotent(
     store, db = store_db
     reg = LumidResourceRegistrar(store, datetime.now(UTC))
 
-    await store.grant("worker", "w-1", "alice")
+    await store.grant("worker", "w-1", "alice", GrantLevel.WRITE)
     _backdate_all(db, "worker", "w-1", days=120)
 
     refs = [ResourceRef(kind="worker", id="w-1")]

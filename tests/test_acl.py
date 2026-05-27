@@ -17,20 +17,22 @@ async def store(tmp_path: Path) -> AsyncIterator[GrantStore]:
 
 
 async def test_grant_and_has_grant_roundtrip(store: GrantStore) -> None:
-    await store.grant("workflow", "wf-1", "alice")
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
     assert await store.has_grant("workflow", "wf-1", "alice") is True
     assert await store.has_grant("workflow", "wf-1", "bob") is False
     assert await store.has_grant("workflow", "missing", "alice") is False
 
 
 async def test_grant_is_idempotent_per_principal(store: GrantStore) -> None:
-    await store.grant("task", "t-1", "alice")
-    await store.grant("task", "t-1", "alice")
-    assert await store.list_ids_for_principal("alice", "task") == frozenset({"t-1"})
+    await store.grant("task", "t-1", "alice", GrantLevel.WRITE)
+    await store.grant("task", "t-1", "alice", GrantLevel.WRITE)
+    assert await store.list_ids_for_principal(
+        "alice", "task", GrantLevel.READ
+    ) == frozenset({"t-1"})
 
 
-async def test_grant_defaults_to_write_level(store: GrantStore) -> None:
-    await store.grant("workflow", "wf-1", "alice")
+async def test_get_level_reads_back_grant(store: GrantStore) -> None:
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
     assert await store.get_level("workflow", "wf-1", "alice") == GrantLevel.WRITE
     assert await store.get_level("workflow", "wf-1", "bob") is None
 
@@ -45,7 +47,7 @@ async def test_grant_stores_and_overwrites_level(store: GrantStore) -> None:
 async def test_list_ids_min_level_filters_by_level(store: GrantStore) -> None:
     await store.grant("workflow", "wf-write", "alice", GrantLevel.WRITE)
     await store.grant("workflow", "wf-read", "alice", GrantLevel.READ)
-    assert await store.list_ids_for_principal("alice", "workflow") == frozenset(
+    assert await store.list_ids_for_principal("alice", "workflow", GrantLevel.READ) == frozenset(
         {"wf-write", "wf-read"}
     )
     assert await store.list_ids_for_principal(
@@ -54,15 +56,15 @@ async def test_list_ids_min_level_filters_by_level(store: GrantStore) -> None:
 
 
 async def test_multiple_principals_share_a_resource(store: GrantStore) -> None:
-    await store.grant("workflow", "wf-1", "alice")
-    await store.grant("workflow", "wf-1", "bob")
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-1", "bob", GrantLevel.WRITE)
     assert await store.has_grant("workflow", "wf-1", "alice") is True
     assert await store.has_grant("workflow", "wf-1", "bob") is True
 
 
 async def test_revoke_removes_single_grant(store: GrantStore) -> None:
-    await store.grant("workflow", "wf-1", "alice")
-    await store.grant("workflow", "wf-1", "bob")
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-1", "bob", GrantLevel.WRITE)
     assert await store.revoke("workflow", "wf-1", "alice") is True
     assert await store.has_grant("workflow", "wf-1", "alice") is False
     assert await store.has_grant("workflow", "wf-1", "bob") is True
@@ -70,9 +72,9 @@ async def test_revoke_removes_single_grant(store: GrantStore) -> None:
 
 
 async def test_delete_resource_removes_all_grants(store: GrantStore) -> None:
-    await store.grant("worker", "w-1", "alice")
-    await store.grant("worker", "w-1", "bob")
-    await store.grant("worker", "w-2", "alice")
+    await store.grant("worker", "w-1", "alice", GrantLevel.WRITE)
+    await store.grant("worker", "w-1", "bob", GrantLevel.WRITE)
+    await store.grant("worker", "w-2", "alice", GrantLevel.WRITE)
     assert await store.delete_resource("worker", "w-1") == 2
     assert await store.has_grant("worker", "w-1", "alice") is False
     assert await store.has_grant("worker", "w-1", "bob") is False
@@ -83,25 +85,27 @@ async def test_delete_resource_removes_all_grants(store: GrantStore) -> None:
 async def test_list_ids_for_principal_filters_by_kind_and_principal(
     store: GrantStore,
 ) -> None:
-    await store.grant("workflow", "wf-1", "alice")
-    await store.grant("workflow", "wf-2", "alice")
-    await store.grant("workflow", "wf-3", "bob")
-    await store.grant("task", "t-1", "alice")
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-2", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-3", "bob", GrantLevel.WRITE)
+    await store.grant("task", "t-1", "alice", GrantLevel.WRITE)
 
-    assert await store.list_ids_for_principal("alice", "workflow") == frozenset(
+    assert await store.list_ids_for_principal("alice", "workflow", GrantLevel.READ) == frozenset(
         {"wf-1", "wf-2"}
     )
-    assert await store.list_ids_for_principal("alice", "task") == frozenset({"t-1"})
-    assert await store.list_ids_for_principal("alice", "worker") == frozenset()
+    assert await store.list_ids_for_principal(
+        "alice", "task", GrantLevel.READ
+    ) == frozenset({"t-1"})
+    assert await store.list_ids_for_principal("alice", "worker", GrantLevel.READ) == frozenset()
 
 
 async def test_list_ids_includes_resources_shared_with_principal(
     store: GrantStore,
 ) -> None:
-    await store.grant("workflow", "wf-1", "alice")
-    await store.grant("workflow", "wf-1", "bob")
-    await store.grant("workflow", "wf-2", "bob")
-    assert await store.list_ids_for_principal("bob", "workflow") == frozenset(
+    await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-1", "bob", GrantLevel.WRITE)
+    await store.grant("workflow", "wf-2", "bob", GrantLevel.WRITE)
+    assert await store.list_ids_for_principal("bob", "workflow", GrantLevel.READ) == frozenset(
         {"wf-1", "wf-2"}
     )
 
@@ -109,9 +113,9 @@ async def test_list_ids_includes_resources_shared_with_principal(
 async def test_reconcile_marks_live_and_drops_stale(tmp_path: Path) -> None:
     db = tmp_path / "acl.sqlite"
     async with open_store(db) as store:
-        await store.grant("worker", "live", "alice")
-        await store.grant("worker", "live", "bob")
-        await store.grant("worker", "stale", "alice")
+        await store.grant("worker", "live", "alice", GrantLevel.WRITE)
+        await store.grant("worker", "live", "bob", GrantLevel.WRITE)
+        await store.grant("worker", "stale", "alice", GrantLevel.WRITE)
         _backdate_all(db, "worker", "live", days=120)
         _backdate_all(db, "worker", "stale", days=120)
 
@@ -132,7 +136,7 @@ async def test_reconcile_empty_batch_wipes_pre_session_rows(
 ) -> None:
     db = tmp_path / "acl.sqlite"
     async with open_store(db) as store:
-        await store.grant("workflow", "wf-1", "alice")
+        await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
         _backdate_all(db, "workflow", "wf-1", days=1)
 
         session_start = datetime.now(UTC)
@@ -152,7 +156,7 @@ async def test_reconcile_preserves_grants_written_after_session_start(
     reconcile sweep.
     """
     session_start = datetime.now(UTC) - timedelta(seconds=1)
-    await store.grant("worker", "fresh", "alice")
+    await store.grant("worker", "fresh", "alice", GrantLevel.WRITE)
     touched, deleted = await store.reconcile([], session_start)
     assert (touched, deleted) == (0, 0)
     assert await store.has_grant("worker", "fresh", "alice") is True
@@ -169,7 +173,7 @@ async def test_reconcile_on_empty_store_is_noop(store: GrantStore) -> None:
 async def test_reconcile_is_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "acl.sqlite"
     async with open_store(db) as store:
-        await store.grant("worker", "w-1", "alice")
+        await store.grant("worker", "w-1", "alice", GrantLevel.WRITE)
         _backdate_all(db, "worker", "w-1", days=120)
 
         session_start = datetime.now(UTC)
@@ -186,7 +190,7 @@ async def test_reconcile_rolls_back_on_error(tmp_path: Path) -> None:
     too — `granted_at` stays at its pre-reconcile value."""
     db = tmp_path / "acl.sqlite"
     async with open_store(db) as store:
-        await store.grant("worker", "w-1", "alice")
+        await store.grant("worker", "w-1", "alice", GrantLevel.WRITE)
         _backdate_all(db, "worker", "w-1", days=120)
         original_granted_at = _read_granted_at(db, "worker", "w-1", "alice")
 

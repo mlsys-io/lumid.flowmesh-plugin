@@ -78,7 +78,7 @@ class GrantStore:
         kind: str,
         resource_id: str,
         principal_id: str,
-        level: GrantLevel = GrantLevel.WRITE,
+        level: GrantLevel,
     ) -> None:
         """Upsert a grant for ``(kind, resource_id, principal_id)`` with ``now``.
 
@@ -135,7 +135,7 @@ class GrantStore:
         return await self.get_level(kind, resource_id, principal_id) is not None
 
     async def list_ids_for_principal(
-        self, principal_id: str, kind: str, min_level: GrantLevel = GrantLevel.READ
+        self, principal_id: str, kind: str, min_level: GrantLevel
     ) -> frozenset[str]:
         """Return ids of ``kind`` that ``principal_id`` holds ``>= min_level`` on."""
         async with self._lock:
