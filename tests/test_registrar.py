@@ -168,6 +168,6 @@ def _backdate_all(db_path: Path, kind: str, resource_id: str, *, days: int) -> N
     backdated = (datetime.now(UTC) - timedelta(days=days)).isoformat()
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "UPDATE acl_grants SET granted_at = ? WHERE kind = ? AND id = ?",
+            "UPDATE acl_grants SET last_seen_at = ? WHERE kind = ? AND id = ?",
             (backdated, kind, resource_id),
         )

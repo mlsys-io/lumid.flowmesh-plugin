@@ -7,6 +7,8 @@ Rows are written by ``LumidResourceRegistrar.register`` at resource creation
 time (owner gets ``WRITE``) and read by ``LumidPermissionChecker`` on every
 authz decision. Stale rows are cleared by the host's startup reconcile sweep,
 which touches every live resource and then drops anything left untouched.
+``granted_at`` records when the grant was first written; ``last_seen_at`` is
+the liveness marker the sweep refreshes and compares against.
 
 Built on the stdlib ``sqlite3`` module. A single ``Connection`` opened in
 autocommit is shared across all ops; an ``asyncio.Lock`` serialises access
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS acl_grants (
     principal_id TEXT NOT NULL,
     level INTEGER NOT NULL,
     granted_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
     PRIMARY KEY (kind, id, principal_id)
 );
 CREATE INDEX IF NOT EXISTS ix_acl_grants_principal_kind
@@ -82,16 +85,17 @@ class GrantStore:
     ) -> None:
         """Upsert a grant for ``(kind, resource_id, principal_id)`` with ``now``.
 
-        Re-granting refreshes ``granted_at`` and overwrites ``level``.
+        Re-granting refreshes ``last_seen_at`` and overwrites ``level``.
         """
-        params = (kind, resource_id, principal_id, int(level), _now_iso())
+        now = _now_iso()
+        params = (kind, resource_id, principal_id, int(level), now, now)
         async with self._lock:
             await asyncio.to_thread(
                 self._conn.execute,
-                "INSERT INTO acl_grants(kind, id, principal_id, level, granted_at) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO acl_grants(kind, id, principal_id, level, granted_at, last_seen_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(kind, id, principal_id) "
-                "DO UPDATE SET granted_at = excluded.granted_at, level = excluded.level",
+                "DO UPDATE SET last_seen_at = excluded.last_seen_at, level = excluded.level",
                 params,
             )
 
@@ -154,9 +158,9 @@ class GrantStore:
     ) -> tuple[int, int]:
         """Replace the store's live set with the listed ``(kind, id)`` pairs.
 
-        Single atomic transaction: bumps ``granted_at`` to ``now`` for every
-        grant matching a pair, then deletes every grant older than
-        ``session_start``. Returns ``(touched, deleted)``.
+        Single atomic transaction: bumps ``last_seen_at`` to ``now`` for every
+        grant matching a pair, then deletes every grant whose ``last_seen_at``
+        is older than ``session_start``. Returns ``(touched, deleted)``.
 
         ``session_start`` is the cutoff used to recognise stale rows. Callers
         capture it at plugin-load time so grants written between load and the
@@ -186,13 +190,13 @@ class GrantStore:
                 for kind, rid in chunk:
                     flat.extend((kind, rid))
                 cur = conn.execute(
-                    f"UPDATE acl_grants SET granted_at = ? "
+                    f"UPDATE acl_grants SET last_seen_at = ? "
                     f"WHERE (kind, id) IN (VALUES {values_clause})",
                     flat,
                 )
                 touched += cur.rowcount
             cur = conn.execute(
-                "DELETE FROM acl_grants WHERE granted_at < ?", (cutoff,)
+                "DELETE FROM acl_grants WHERE last_seen_at < ?", (cutoff,)
             )
             deleted = cur.rowcount
             conn.execute("COMMIT")

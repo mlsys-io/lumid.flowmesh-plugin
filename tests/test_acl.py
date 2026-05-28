@@ -44,6 +44,26 @@ async def test_grant_stores_and_overwrites_level(store: GrantStore) -> None:
     assert await store.get_level("workflow", "wf-1", "alice") == GrantLevel.WRITE
 
 
+async def test_regrant_preserves_granted_at_and_bumps_last_seen(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as store:
+        await store.grant("workflow", "wf-1", "alice", GrantLevel.READ)
+        old = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "UPDATE acl_grants SET granted_at = ?, last_seen_at = ?",
+                (old, old),
+            )
+
+        await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+
+        assert _read_granted_at(db, "workflow", "wf-1", "alice") == old
+        assert _read_last_seen_at(db, "workflow", "wf-1", "alice") > old
+        assert await store.get_level("workflow", "wf-1", "alice") == GrantLevel.WRITE
+
+
 async def test_list_ids_min_level_filters_by_level(store: GrantStore) -> None:
     await store.grant("workflow", "wf-write", "alice", GrantLevel.WRITE)
     await store.grant("workflow", "wf-read", "alice", GrantLevel.READ)
@@ -151,7 +171,7 @@ async def test_reconcile_preserves_grants_written_after_session_start(
     store: GrantStore,
 ) -> None:
     """A grant written after `session_start` survives even with an empty
-    batch — its `granted_at` is past the cutoff. This protects grants from
+    batch — its `last_seen_at` is past the cutoff. This protects grants from
     `register` calls that land between plugin install and the host's
     reconcile sweep.
     """
@@ -187,12 +207,12 @@ async def test_reconcile_is_idempotent(tmp_path: Path) -> None:
 
 async def test_reconcile_rolls_back_on_error(tmp_path: Path) -> None:
     """If the DELETE raises after the UPDATE ran, the UPDATE is rolled back
-    too — `granted_at` stays at its pre-reconcile value."""
+    too — `last_seen_at` stays at its pre-reconcile value."""
     db = tmp_path / "acl.sqlite"
     async with open_store(db) as store:
         await store.grant("worker", "w-1", "alice", GrantLevel.WRITE)
         _backdate_all(db, "worker", "w-1", days=120)
-        original_granted_at = _read_granted_at(db, "worker", "w-1", "alice")
+        original_last_seen_at = _read_last_seen_at(db, "worker", "w-1", "alice")
 
         real_conn = store._conn
 
@@ -204,7 +224,7 @@ async def test_reconcile_rolls_back_on_error(tmp_path: Path) -> None:
                 self.calls += 1
                 # Let BEGIN (1) and UPDATE (2) run on the real connection;
                 # raise on DELETE (3) so the except clause issues ROLLBACK
-                # and the UPDATE's bump to `granted_at` is reverted.
+                # and the UPDATE's bump to `last_seen_at` is reverted.
                 if self.calls == 3:
                     raise RuntimeError("simulated mid-transaction failure")
                 return real_conn.execute(sql, *args)
@@ -218,7 +238,7 @@ async def test_reconcile_rolls_back_on_error(tmp_path: Path) -> None:
             store._conn = real_conn
 
         assert await store.has_grant("worker", "w-1", "alice") is True
-        assert _read_granted_at(db, "worker", "w-1", "alice") == original_granted_at
+        assert _read_last_seen_at(db, "worker", "w-1", "alice") == original_last_seen_at
 
 
 async def test_open_store_is_idempotent(tmp_path: Path) -> None:
@@ -233,7 +253,7 @@ def _backdate_all(db_path: Path, kind: str, resource_id: str, *, days: int) -> N
     backdated = (datetime.now(UTC) - timedelta(days=days)).isoformat()
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "UPDATE acl_grants SET granted_at = ? WHERE kind = ? AND id = ?",
+            "UPDATE acl_grants SET last_seen_at = ? WHERE kind = ? AND id = ?",
             (backdated, kind, resource_id),
         )
 
@@ -241,9 +261,21 @@ def _backdate_all(db_path: Path, kind: str, resource_id: str, *, days: int) -> N
 def _read_granted_at(
     db_path: Path, kind: str, resource_id: str, principal_id: str
 ) -> str:
+    return _read_column(db_path, "granted_at", kind, resource_id, principal_id)
+
+
+def _read_last_seen_at(
+    db_path: Path, kind: str, resource_id: str, principal_id: str
+) -> str:
+    return _read_column(db_path, "last_seen_at", kind, resource_id, principal_id)
+
+
+def _read_column(
+    db_path: Path, column: str, kind: str, resource_id: str, principal_id: str
+) -> str:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT granted_at FROM acl_grants "
+            f"SELECT {column} FROM acl_grants "
             "WHERE kind = ? AND id = ? AND principal_id = ?",
             (kind, resource_id, principal_id),
         ).fetchone()
