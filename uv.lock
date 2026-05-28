@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -112,9 +112,13 @@ wheels = [
 [[package]]
 name = "flowmesh-hook"
 version = "0.1.0"
-source = { git = "https://github.com/mlsys-io/FlowMesh.git?subdirectory=hook&branch=main#87b8757f73223ffc1ceec32e0b7d2bf0fcd383f0" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lumid-hooks" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/69/cb/6b37d97d2daf18a8e4d50d5195fc8b1b1377567716a2093696646b8556fd/flowmesh_hook-0.1.0.tar.gz", hash = "sha256:105b209bb26374975ec9ed8f45cdb9e29fe74d4c094fed58e359da41d27002e0", size = 7645, upload-time = "2026-05-13T03:25:12.489Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/e6/6469beaa090e0de9a0f78deb29f3399415bd38f73391bc9a86f8ba287c75/flowmesh_hook-0.1.0-py3-none-any.whl", hash = "sha256:b118c91d21974245df47d02b0e24c8b492a8b2ff35b96cd43c7d477456e81f73", size = 9517, upload-time = "2026-05-13T03:25:11.314Z" },
 ]
 
 [[package]]
@@ -256,9 +260,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "flowmesh-hook", git = "https://github.com/mlsys-io/FlowMesh.git?subdirectory=hook&branch=main" },
+    { name = "flowmesh-hook", specifier = ">=0.1.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "lumid-hooks", git = "https://github.com/mlsys-io/lumid.hooks.git?tag=v0.1.0" },
+    { name = "lumid-hooks", specifier = ">=0.2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -270,10 +274,14 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "lumid-hooks"
-version = "0.1.0"
-source = { git = "https://github.com/mlsys-io/lumid.hooks.git?tag=v0.1.0#cc91d2c9a6a463a3966923b6d72c8d571736ac41" }
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/34/b7/f2c4544b4df91ce80908f17cd5645611ec2538ddc6444bc00ad8e5961531/lumid_hooks-0.2.0.tar.gz", hash = "sha256:3c33d067c238337c16be88708d674448d83642e767bc0724e0ab1b5f6122010d", size = 11655, upload-time = "2026-05-22T03:49:57.706Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/ac/1b39a49650a27f012b847b6be939866cec39d4aea96d50177ec8861d21ea/lumid_hooks-0.2.0-py3-none-any.whl", hash = "sha256:a3e471ee38cfe83eb46199a64c269bc0ad9f81154d820e68d45c604a16e1f2e7", size = 13002, upload-time = "2026-05-22T03:49:56.281Z" },
 ]
 
 [[package]]

@@ -9,7 +9,7 @@ authors = [
     { name = "mlsys-io" },
 ]
 dependencies = [
-    "lumid-hooks>=0.1.0,<0.2.0",
+    "lumid-hooks>=0.2.0",
     "flowmesh-hook>=0.1.0",
     "httpx>=0.27",
     "pydantic>=2.12.3",
@@ -34,15 +34,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lumid_flowmesh_plugin"]
-
-[tool.uv.sources]
-# lumid-hooks is on PyPI (0.1.0, 0.2.0). flowmesh-hook is still source-only.
-# Pin lumid-hooks to the v0.1.0 tag so a `uv sync` doesn't silently pick up
-# the breaking 0.2.0 ResourceRegistrar.reconcile change before this plugin's
-# registrar.py implements it. Drop the git source entirely once we adopt the
-# new Protocol (PR #1 against this repo).
-lumid-hooks = { git = "https://github.com/mlsys-io/lumid.hooks.git", tag = "v0.1.0" }
-flowmesh-hook = { git = "https://github.com/mlsys-io/FlowMesh.git", subdirectory = "hook", branch = "main" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
