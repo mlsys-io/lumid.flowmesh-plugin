@@ -2,7 +2,7 @@
 
 import sqlite3
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -188,6 +188,34 @@ async def test_reconcile_on_empty_store_is_noop(store: GrantStore) -> None:
         [("worker", "w-1")], session_start
     )
     assert (touched, deleted) == (0, 0)
+
+
+async def test_reconcile_rejects_naive_session_start(store: GrantStore) -> None:
+    """A tz-naive cutoff would compare lexically wrong against the UTC
+    `last_seen_at` strings and fail open, so the store rejects it outright."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await store.reconcile([], datetime.now())  # naive on purpose
+
+
+async def test_reconcile_normalises_non_utc_session_start(tmp_path: Path) -> None:
+    """A non-UTC aware cutoff is normalised to UTC before comparison, so a
+    grant whose `last_seen_at` equals `session_start` (same instant, different
+    zone) is not falsely swept by a lexical string mismatch."""
+    db = tmp_path / "acl.sqlite"
+    async with open_store(db) as store:
+        await store.grant("workflow", "wf-1", "alice", GrantLevel.WRITE)
+        instant = datetime(2026, 1, 1, tzinfo=UTC)
+        with sqlite3.connect(db) as conn:
+            conn.execute("UPDATE acl_grants SET last_seen_at = ?", (instant.isoformat(),))
+
+        # Same instant expressed in +08:00 — its raw isoformat is lexically
+        # larger than the stored UTC string, which would wrongly delete the row
+        # without UTC normalisation.
+        session_start = instant.astimezone(timezone(timedelta(hours=8)))
+        touched, deleted = await store.reconcile([], session_start)
+
+        assert (touched, deleted) == (0, 0)
+        assert await store.has_grant("workflow", "wf-1", "alice") is True
 
 
 async def test_reconcile_is_idempotent(tmp_path: Path) -> None:

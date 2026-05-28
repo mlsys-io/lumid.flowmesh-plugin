@@ -164,8 +164,11 @@ class GrantStore:
 
         ``session_start`` is the cutoff used to recognise stale rows. Callers
         capture it at plugin-load time so grants written between load and the
-        host's reconcile call survive the sweep.
+        host's reconcile call survive the sweep. It must be timezone-aware
+        (naive is rejected) for lexical comparison.
         """
+        if session_start.tzinfo is None:
+            raise ValueError("session_start must be timezone-aware")
         materialized = list(pairs)
         async with self._lock:
             return await asyncio.to_thread(
@@ -178,7 +181,7 @@ class GrantStore:
         session_start: datetime,
     ) -> tuple[int, int]:
         conn = self._conn
-        cutoff = session_start.isoformat()
+        cutoff = session_start.astimezone(UTC).isoformat()
         now = _now_iso()
         conn.execute("BEGIN")
         try:
