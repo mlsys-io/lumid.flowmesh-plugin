@@ -30,6 +30,15 @@ lum.id PATs mint against this list; the `PermissionChecker` reads it:
 
 Concrete-id access requires a grant on the resource.
 
+## Compatibility
+
+| Plugin | FlowMesh server | `flowmesh-hook` | `lumid-hooks` |
+|---|---|---|---|
+| 0.1.1 | 0.1.0, 0.1.1 | 0.1.0, 0.1.1 | 0.1.0 |
+| 0.2.0 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.2.0 |
+
+The FlowMesh server is not pip-enforceable — the plugin loads into a running server process — so it must be at least the version shown. Plugin 0.2.0 requires the FlowMesh server's `ResourceRegistrar.reconcile_resources` startup sweep, the `/app/plugin-data` writable mount, and the `RESULT`/`WRITE` gate on result and trace uploads, all of which are present from FlowMesh 0.1.2.
+
 ## Environment variables
 
 | Var | Required | Default | Notes |

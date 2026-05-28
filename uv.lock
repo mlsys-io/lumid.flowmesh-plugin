@@ -111,14 +111,14 @@ wheels = [
 
 [[package]]
 name = "flowmesh-hook"
-version = "0.1.0"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lumid-hooks" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/69/cb/6b37d97d2daf18a8e4d50d5195fc8b1b1377567716a2093696646b8556fd/flowmesh_hook-0.1.0.tar.gz", hash = "sha256:105b209bb26374975ec9ed8f45cdb9e29fe74d4c094fed58e359da41d27002e0", size = 7645, upload-time = "2026-05-13T03:25:12.489Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/c2/986743161208be269c58bf5b3bc0aa1faeea82a6f3d2f8f91e554f4c2d32/flowmesh_hook-0.1.2.tar.gz", hash = "sha256:6d16bf79dd4591edf4c91915e535b5ee124869dab1eea8f8ea401e7777c76ea6", size = 7660, upload-time = "2026-05-28T04:06:22.49Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cd/e6/6469beaa090e0de9a0f78deb29f3399415bd38f73391bc9a86f8ba287c75/flowmesh_hook-0.1.0-py3-none-any.whl", hash = "sha256:b118c91d21974245df47d02b0e24c8b492a8b2ff35b96cd43c7d477456e81f73", size = 9517, upload-time = "2026-05-13T03:25:11.314Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/4c/c31f64755b78a8dcacc081055e0e7d5cc3e3db82051deb7640364afe6add/flowmesh_hook-0.1.2-py3-none-any.whl", hash = "sha256:e0a8bcca546d41959833a4c4eec5116f9c468332cb1dcf6b523c969350b482b8", size = 9565, upload-time = "2026-05-28T04:06:16.691Z" },
 ]
 
 [[package]]
@@ -238,7 +238,7 @@ wheels = [
 
 [[package]]
 name = "lumid-flowmesh-plugin"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -260,7 +260,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "flowmesh-hook", specifier = ">=0.1.0" },
+    { name = "flowmesh-hook", specifier = ">=0.1.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "lumid-hooks", specifier = ">=0.2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
