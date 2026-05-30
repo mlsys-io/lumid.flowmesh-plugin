@@ -7,8 +7,7 @@ import pytest
 import respx
 from fastapi import HTTPException
 
-from lumid_flowmesh_plugin._cache import TTLCache
-from lumid_flowmesh_plugin.identity import LumidIdentityProvider
+from lumid_flowmesh_plugin._core import LumidIdentityProvider, TTLCache
 
 LUM_ID_BASE = "https://lum.id"
 INTROSPECT_URL = f"{LUM_ID_BASE}/oauth/introspect"

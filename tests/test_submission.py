@@ -8,7 +8,7 @@ import respx
 from fastapi import HTTPException
 from lumid_hooks import PrincipalContext
 
-from lumid_flowmesh_plugin._cache import TTLCache
+from lumid_flowmesh_plugin._core import TTLCache
 from lumid_flowmesh_plugin.submission import RunmeshBalanceGuard
 
 RUNMESH_BASE = "https://kv.run:8000/Runmesh"

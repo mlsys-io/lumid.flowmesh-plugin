@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from lumid_flowmesh_plugin._cache import TTLCache
+from lumid_flowmesh_plugin._core import TTLCache
 
 
 @pytest.fixture

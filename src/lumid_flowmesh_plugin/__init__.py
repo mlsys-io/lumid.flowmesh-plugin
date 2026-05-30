@@ -12,13 +12,13 @@ from datetime import UTC, datetime
 
 from flowmesh_hook import BaseBindings
 
-from .acl import open_store
-from .config import load_settings
-from .identity import (
+from ._core import (
     IntrospectedToken,
     LumidIdentityProvider,
     build_email_cache,
 )
+from .acl import open_store
+from .config import load_settings
 from .permissions import LumidPermissionChecker
 from .registrar import LumidResourceRegistrar
 from .submission import RunmeshBalanceGuard
@@ -38,6 +38,7 @@ async def install() -> AsyncIterator[BaseBindings]:
             base_url=settings.lum_id_base_url,
             org_id=settings.lumid_org_id,
             email_cache=email_cache,
+            name="lumid_flowmesh_plugin.identity",
         )
         supplier = NamespaceSupplierResolver()
         permission_checker = LumidPermissionChecker(store)
