@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -237,14 +237,27 @@ wheels = [
 ]
 
 [[package]]
-name = "lumid-flowmesh-plugin"
+name = "lumid-hooks"
 version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/34/b7/f2c4544b4df91ce80908f17cd5645611ec2538ddc6444bc00ad8e5961531/lumid_hooks-0.2.0.tar.gz", hash = "sha256:3c33d067c238337c16be88708d674448d83642e767bc0724e0ab1b5f6122010d", size = 11655, upload-time = "2026-05-22T03:49:57.706Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/ac/1b39a49650a27f012b847b6be939866cec39d4aea96d50177ec8861d21ea/lumid_hooks-0.2.0-py3-none-any.whl", hash = "sha256:a3e471ee38cfe83eb46199a64c269bc0ad9f81154d820e68d45c604a16e1f2e7", size = 13002, upload-time = "2026-05-22T03:49:56.281Z" },
+]
+
+[[package]]
+name = "lumid-plugins"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "flowmesh-hook" },
     { name = "httpx" },
     { name = "lumid-hooks" },
+    { name = "lumilake-hook" },
     { name = "pydantic" },
 ]
 
@@ -263,6 +276,7 @@ requires-dist = [
     { name = "flowmesh-hook", specifier = ">=0.1.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "lumid-hooks", specifier = ">=0.2.0" },
+    { name = "lumilake-hook", specifier = ">=0.1.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -273,15 +287,15 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "lumid-hooks"
-version = "0.2.0"
+name = "lumilake-hook"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pydantic" },
+    { name = "lumid-hooks" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/34/b7/f2c4544b4df91ce80908f17cd5645611ec2538ddc6444bc00ad8e5961531/lumid_hooks-0.2.0.tar.gz", hash = "sha256:3c33d067c238337c16be88708d674448d83642e767bc0724e0ab1b5f6122010d", size = 11655, upload-time = "2026-05-22T03:49:57.706Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/36/7a919dd88d541ce833247e14b6c20ee5ef4df013e84dd177e2b5228d4303/lumilake_hook-0.1.2.tar.gz", hash = "sha256:05bc424c7cc4814c1a694d52f8472171df7a6250d3243048cfcd620e0ef4bab5", size = 6104, upload-time = "2026-05-30T15:32:28.972Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/ac/1b39a49650a27f012b847b6be939866cec39d4aea96d50177ec8861d21ea/lumid_hooks-0.2.0-py3-none-any.whl", hash = "sha256:a3e471ee38cfe83eb46199a64c269bc0ad9f81154d820e68d45c604a16e1f2e7", size = 13002, upload-time = "2026-05-22T03:49:56.281Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/b4/a28a8f66ca6543a00026b0b58cd4fb8d11e0b2dd7e3d3ae3b781b9f42a37/lumilake_hook-0.1.2-py3-none-any.whl", hash = "sha256:ca6d38f8ce8e7c799680a01f04c97d9c5afa9d74a50ec8f12abb4b0a5525db33", size = 6730, upload-time = "2026-05-30T15:32:23.826Z" },
 ]
 
 [[package]]
