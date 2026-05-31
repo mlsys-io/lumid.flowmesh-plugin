@@ -11,7 +11,7 @@ import httpx
 from fastapi import HTTPException, status
 from lumid_hooks import PrincipalContext
 
-from ._cache import TTLCache
+from ._core import TTLCache
 
 _MIN_BALANCE_FOR_SUBMIT = "0.01"
 

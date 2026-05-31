@@ -36,8 +36,6 @@ class IntrospectedToken(BaseModel):
 class LumidIdentityProvider:
     """IdentityProvider that delegates token validation to lum.id."""
 
-    name = "lumid_flowmesh_plugin.identity"
-
     def __init__(
         self,
         *,
@@ -46,6 +44,7 @@ class LumidIdentityProvider:
         email_cache: TTLCache[str],
         introspect_cache: TTLCache[IntrospectedToken] | None = None,
         timeout_sec: float = 3.0,
+        name: str = "lumid_plugin._core.identity",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._org_id = org_id
@@ -54,6 +53,7 @@ class LumidIdentityProvider:
             ttl_sec=_INTROSPECT_TTL_SEC, capacity=_INTROSPECT_CAPACITY
         )
         self._timeout_sec = timeout_sec
+        self.name = name
 
     async def resolve(
         self, raw_token: str, logger: logging.Logger

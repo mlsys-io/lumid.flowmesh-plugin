@@ -1,8 +1,34 @@
-# lumid-flowmesh-plugin
+# lumid-plugins
 
-FlowMesh plugin that bridges lum.id identity, permission checking, Runmesh billing, and supplier attribution. Loaded into a FlowMesh Server process via `FLOWMESH_PLUGINS=lumid_flowmesh_plugin`.
+lum.id host plugins for the two services that share its identity:
 
-## What it provides
+* **`lumid_flowmesh_plugin`** — full FlowMesh adapter: identity, permission checks, resource registrar, Runmesh billing, supplier attribution. Loaded via `FLOWMESH_PLUGINS=lumid_flowmesh_plugin`.
+* **`lumid_lumilake_plugin`** — Lumilake adapter: identity only. Loaded via `LUMILAKE_PLUGINS=lumid_lumilake_plugin`. The same `LumidIdentityProvider` powers both, so the bearer Lumilake accepts is the bearer Lumilake forwards to FlowMesh — both sides re-introspect the same string.
+
+Both modules live in one repo (`lumid-plugins`) so the lum.id core is implemented once.
+
+## Repo layout
+
+```
+src/
+├── _shared_core/                 ← physical source of truth (TTLCache,
+│   ├── _cache.py                   LumidIdentityProvider, CoreSettings)
+│   ├── config.py
+│   ├── identity.py
+│   └── __init__.py
+├── lumid_flowmesh_plugin/
+│   ├── _core → ../_shared_core   ← symlink
+│   ├── __init__.py / acl.py / permissions.py / ...
+└── lumid_lumilake_plugin/
+    ├── _core → ../_shared_core   ← symlink
+    └── __init__.py
+```
+
+Each plugin imports its shared sources as `from ._core import ...` — no plugin reaches across to a sibling plugin. The two `_core` symlinks point at the same physical directory, so editing `src/_shared_core/identity.py` is the single edit that ripples to both adapters.
+
+Deploys must dereference the `_core` symlinks when copying the source tree (`cp -rL`); see the loading sections below.
+
+## FlowMesh plugin: what it provides
 
 | Hook | Behaviour |
 |---|---|
@@ -15,9 +41,9 @@ FlowMesh plugin that bridges lum.id identity, permission checking, Runmesh billi
 
 `install()` is an `@asynccontextmanager`: it opens the ACL SQLite connection, bootstraps the schema, yields the bindings, and closes the connection on FastAPI shutdown. Stale grants are dropped by the host's startup `reconcile` sweep through `ResourceRegistrar`.
 
-## Scope vocabulary
+### Scope vocabulary
 
-lum.id PATs mint against this list; the `PermissionChecker` reads it:
+The FlowMesh adapter's `PermissionChecker` reads these scopes from the introspected token:
 
 | Scope | Grants |
 |---|---|
@@ -32,12 +58,12 @@ Concrete-id access requires a grant on the resource.
 
 ## Compatibility
 
-| Plugin | FlowMesh server | `flowmesh-hook` | `lumid-hooks` |
-|---|---|---|---|
-| 0.1.1 | 0.1.0, 0.1.1 | 0.1.0, 0.1.1 | 0.1.0 |
-| 0.2.0 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.2.0 |
+| Plugin | FlowMesh server | `flowmesh-hook` | Lumilake server | `lumilake-hook` | `lumid-hooks` |
+|---|---|---|---|---|---|
+| 0.1.1 | 0.1.0, 0.1.1 | 0.1.0, 0.1.1 | not supported | not supported | 0.1.0 |
+| 0.2.0 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.2.0 |
 
-The FlowMesh server is not pip-enforceable — the plugin loads into a running server process — so it must be at least the version shown. Plugin 0.2.0 requires the FlowMesh server's `ResourceRegistrar.reconcile_resources` startup sweep, the `/app/plugin-data` writable mount, and the `RESULT`/`WRITE` gate on result and trace uploads, all of which are present from FlowMesh 0.1.2.
+Host servers are not pip-enforceable (plugins load into a running process), so they must be at least the version shown. FlowMesh 0.1.2 ships the `ResourceRegistrar.reconcile_resources` startup sweep, `/app/plugin-data` writable mount, and `RESULT/WRITE` gate that the FlowMesh adapter depends on. Lumilake 0.1.2 ships the `IdentityProvider` plugin gate that the Lumilake adapter targets.
 
 ## Environment variables
 
@@ -61,16 +87,41 @@ RUNMESH_BILLING_BASE_URL=https://kv.run:8000/Runmesh
 FLOWMESH_BRIDGE_SECRET=<shared-secret>
 ```
 
-Drop the plugin's source tree under the host plugin directory (`${FLOWMESH_PLUGIN_DIR:-./plugins}`) so the server can import it from `/app/plugins`:
+Drop the plugin's source tree under `${FLOWMESH_PLUGIN_DIR:-./plugins}` with `cp -rL` so the `_core` symlink is dereferenced into real files inside the deployed directory:
 
 ```bash
-git clone --branch v<version> https://github.com/mlsys-io/lumid.flowmesh-plugin /tmp/lumid-flowmesh-plugin
-cp -r /tmp/lumid-flowmesh-plugin/src/lumid_flowmesh_plugin plugins/
+git clone --branch v<version> https://github.com/mlsys-io/lumid.flowmesh-plugin /tmp/lumid-plugins
+cp -rL /tmp/lumid-plugins/src/lumid_flowmesh_plugin plugins/ # The `-L` flag is mandatory to import the shared directory.
 
 flowmesh stack up
 ```
 
 Runtime deps (`httpx`, `pydantic`, `fastapi`, `lumid-hooks`, `flowmesh-hook`) ship with the FlowMesh server image; the ACL store uses the stdlib `sqlite3` module.
+
+## Lumilake plugin: what it provides
+
+| Hook | Behaviour |
+|---|---|
+| `IdentityProvider` | The same `LumidIdentityProvider` as the FlowMesh plugin — resolves bearers via `POST {LUM_ID_BASE_URL}/oauth/introspect`, returns a `lumid_hooks.PrincipalContext` with the token's scopes verbatim, caches introspect responses for 60 s. |
+
+
+### Loading on Lumilake
+
+Set the env vars on the Lumilake server image:
+
+```ini
+LUMILAKE_PLUGINS=lumid_lumilake_plugin
+LUM_ID_BASE_URL=https://lum.id
+LUMID_ORG_ID=lumid
+LUMILAKE_REQUIRE_IDENTITY_PROVIDER=1
+```
+
+```bash
+git clone --branch v<version> https://github.com/mlsys-io/lumid.flowmesh-plugin /tmp/lumid-plugins
+cp -rL /tmp/lumid-plugins/src/lumid_lumilake_plugin plugins/
+
+lumilake deploy restart
+```
 
 ## Tests
 

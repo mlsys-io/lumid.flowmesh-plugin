@@ -2,7 +2,7 @@
 
 import pytest
 
-from lumid_flowmesh_plugin._cache import TTLCache
+from lumid_flowmesh_plugin._core import TTLCache
 
 
 def test_set_and_get_roundtrip() -> None:

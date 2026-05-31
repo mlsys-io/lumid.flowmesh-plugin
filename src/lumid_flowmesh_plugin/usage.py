@@ -6,7 +6,7 @@ from collections.abc import Sequence
 import httpx
 from flowmesh_hook import UsageRow
 
-from ._cache import TTLCache
+from ._core import TTLCache
 
 
 class RunmeshUsageSink:

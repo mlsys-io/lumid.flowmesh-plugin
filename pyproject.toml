@@ -1,7 +1,7 @@
 [project]
-name = "lumid-flowmesh-plugin"
+name = "lumid-plugins"
 version = "0.2.0"
-description = "FlowMesh plugin that bridges lum.id identity, Runmesh billing, and supplier attribution."
+description = "lum.id host plugins for FlowMesh and Lumilake (lum.id identity, Runmesh billing, and supplier attribution)."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
@@ -11,6 +11,7 @@ authors = [
 dependencies = [
     "lumid-hooks>=0.2.0",
     "flowmesh-hook>=0.1.2",
+    "lumilake-hook>=0.1.2",
     "httpx>=0.27",
     "pydantic>=2.12.3",
     "fastapi>=0.115",
@@ -33,7 +34,10 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lumid_flowmesh_plugin"]
+packages = [
+    "src/lumid_flowmesh_plugin",
+    "src/lumid_lumilake_plugin",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -52,4 +56,8 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = "flowmesh_hook"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "lumilake_hook"
 ignore_missing_imports = true

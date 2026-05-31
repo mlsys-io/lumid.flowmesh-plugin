@@ -9,7 +9,7 @@ import httpx
 import respx
 from flowmesh_hook import UsageRow
 
-from lumid_flowmesh_plugin._cache import TTLCache
+from lumid_flowmesh_plugin._core import TTLCache
 from lumid_flowmesh_plugin.usage import RunmeshUsageSink
 
 RUNMESH_BASE = "https://kv.run:8000/Runmesh"
