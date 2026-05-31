@@ -3,15 +3,15 @@
 from lumilake_hook import BaseBindings
 
 from ._core import (
+    CoreSettings,
     IntrospectedToken,
     LumidIdentityProvider,
     build_email_cache,
-    load_core_settings,
 )
 
 
 def install() -> BaseBindings:
-    core = load_core_settings()
+    core = CoreSettings.from_env()
     email_cache = build_email_cache()
 
     identity = LumidIdentityProvider(

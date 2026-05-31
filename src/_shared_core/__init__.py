@@ -4,7 +4,7 @@ Exposed inside each plugin via a `_core` symlink to this directory.
 """
 
 from ._cache import TTLCache
-from .config import CoreSettings, load_core_settings
+from .config import CoreSettings
 from .identity import (
     IntrospectedToken,
     LumidIdentityProvider,
@@ -17,5 +17,4 @@ __all__ = [
     "LumidIdentityProvider",
     "TTLCache",
     "build_email_cache",
-    "load_core_settings",
 ]

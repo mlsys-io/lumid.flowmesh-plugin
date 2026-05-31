@@ -2,8 +2,9 @@
 
 import os
 from dataclasses import dataclass
+from typing import Self
 
-from ._core import CoreSettings, load_core_settings
+from ._core import CoreSettings
 
 
 @dataclass(frozen=True)
@@ -13,16 +14,14 @@ class Settings(CoreSettings):
     lumid_balance_guard_enabled: bool
     lumid_acl_db_path: str
 
-
-def load_settings() -> Settings:
-    core = load_core_settings()
-    return Settings(
-        lum_id_base_url=core.lum_id_base_url,
-        lumid_org_id=core.lumid_org_id,
-        runmesh_billing_base_url=os.getenv("RUNMESH_BILLING_BASE_URL", "").rstrip("/"),
-        flowmesh_bridge_secret=os.getenv("FLOWMESH_BRIDGE_SECRET", ""),
-        lumid_balance_guard_enabled=os.getenv("LUMID_BALANCE_GUARD", "off").lower() == "on",
-        lumid_acl_db_path=os.getenv(
-            "LUMID_ACL_DB_PATH", "/app/plugin-data/lumid_acl.sqlite"
-        ),
-    )
+    @classmethod
+    def from_env(cls) -> Self:
+        return cls(
+            **cls._core_env_fields(),
+            runmesh_billing_base_url=os.getenv("RUNMESH_BILLING_BASE_URL", "").rstrip("/"),
+            flowmesh_bridge_secret=os.getenv("FLOWMESH_BRIDGE_SECRET", ""),
+            lumid_balance_guard_enabled=os.getenv("LUMID_BALANCE_GUARD", "off").lower() == "on",
+            lumid_acl_db_path=os.getenv(
+                "LUMID_ACL_DB_PATH", "/app/plugin-data/lumid_acl.sqlite"
+            ),
+        )

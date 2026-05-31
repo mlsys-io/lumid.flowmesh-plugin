@@ -58,12 +58,10 @@ Concrete-id access requires a grant on the resource.
 
 ## Compatibility
 
-| Host | Server | Hook |
-|---|---|---|
-| FlowMesh | ≥ 0.1.2 | `flowmesh-hook ≥ 0.1.2` |
-| Lumilake | ≥ 0.1.2 | `lumilake-hook ≥ 0.1.2` |
-
-Shared dep: `lumid-hooks ≥ 0.2.0`.
+| Plugin | FlowMesh server | `flowmesh-hook` | Lumilake server | `lumilake-hook` | `lumid-hooks` |
+|---|---|---|---|---|---|
+| 0.1.1 | 0.1.0, 0.1.1 | 0.1.0, 0.1.1 | not supported | not supported | 0.1.0 |
+| 0.2.0 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.1.2 | ≥ 0.2.0 |
 
 Host servers are not pip-enforceable (plugins load into a running process), so they must be at least the version shown. FlowMesh 0.1.2 ships the `ResourceRegistrar.reconcile_resources` startup sweep, `/app/plugin-data` writable mount, and `RESULT/WRITE` gate that the FlowMesh adapter depends on. Lumilake 0.1.2 ships the `IdentityProvider` plugin gate that the Lumilake adapter targets.
 
@@ -106,9 +104,6 @@ Runtime deps (`httpx`, `pydantic`, `fastapi`, `lumid-hooks`, `flowmesh-hook`) sh
 |---|---|
 | `IdentityProvider` | The same `LumidIdentityProvider` as the FlowMesh plugin — resolves bearers via `POST {LUM_ID_BASE_URL}/oauth/introspect`, returns a `lumid_hooks.PrincipalContext` with the token's scopes verbatim, caches introspect responses for 60 s. |
 
-No `PermissionChecker`, `ResourceRegistrar`, `SubmissionGuard`, or `UsageSink` on the Lumilake side. Lumilake's resource kinds and usage-row shape differ from FlowMesh's; those hooks belong on a separate follow-up rather than reusing the FlowMesh-shaped implementations.
-
-Lumilake forwards the user's bearer to FlowMesh post-submit (`docs/PLUGINS.md` "Runtime Credentials"), so the FlowMesh-side plugin still gates billing, supplier attribution, and permissions — the Lumilake plugin's only job is to resolve the principal up front so the request carries an authenticated identity into the rest of the stack.
 
 ### Loading on Lumilake
 

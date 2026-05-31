@@ -18,7 +18,7 @@ from ._core import (
     build_email_cache,
 )
 from .acl import open_store
-from .config import load_settings
+from .config import Settings
 from .permissions import LumidPermissionChecker
 from .registrar import LumidResourceRegistrar
 from .submission import RunmeshBalanceGuard
@@ -28,7 +28,7 @@ from .usage import RunmeshUsageSink
 
 @asynccontextmanager
 async def install() -> AsyncIterator[BaseBindings]:
-    settings = load_settings()
+    settings = Settings.from_env()
     email_cache = build_email_cache()
 
     async with open_store(settings.lumid_acl_db_path) as store:

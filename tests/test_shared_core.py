@@ -10,14 +10,13 @@ from lumid_flowmesh_plugin._core import (
     LumidIdentityProvider,
     TTLCache,
     build_email_cache,
-    load_core_settings,
 )
 
 
 def test_core_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LUM_ID_BASE_URL", raising=False)
     monkeypatch.delenv("LUMID_ORG_ID", raising=False)
-    settings = load_core_settings()
+    settings = CoreSettings.from_env()
     assert isinstance(settings, CoreSettings)
     assert settings.lum_id_base_url == "https://lum.id"
     assert settings.lumid_org_id == "lumid"
@@ -26,7 +25,7 @@ def test_core_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_core_settings_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LUM_ID_BASE_URL", "https://lum.id.dev/")
     monkeypatch.setenv("LUMID_ORG_ID", "tenant-42")
-    settings = load_core_settings()
+    settings = CoreSettings.from_env()
     assert settings.lum_id_base_url == "https://lum.id.dev"
     assert settings.lumid_org_id == "tenant-42"
 
