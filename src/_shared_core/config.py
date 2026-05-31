@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self
 
 
 @dataclass(frozen=True)
@@ -11,7 +11,7 @@ class CoreSettings:
     lumid_org_id: str
 
     @classmethod
-    def _core_env_fields(cls) -> dict[str, str]:
+    def _env_fields(cls) -> dict[str, Any]:
         return {
             "lum_id_base_url": os.getenv("LUM_ID_BASE_URL", "https://lum.id").rstrip("/"),
             "lumid_org_id": os.getenv("LUMID_ORG_ID", "lumid"),
@@ -19,4 +19,4 @@ class CoreSettings:
 
     @classmethod
     def from_env(cls) -> Self:
-        return cls(**cls._core_env_fields())
+        return cls(**cls._env_fields())
